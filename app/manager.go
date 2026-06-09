@@ -1,0 +1,513 @@
+package app
+
+import (
+	"archive/zip"
+	"bufio"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"promptyly/agent"
+	"promptyly/config"
+	"promptyly/git"
+	"promptyly/history"
+	"promptyly/server"
+	"runtime"
+	"strings"
+	"time"
+)
+
+// Slugify converts a text prompt into a clean URL-friendly/directory-friendly name.
+func Slugify(s string) string {
+	s = strings.ToLower(s)
+	var sb strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+		} else if r == ' ' || r == '-' || r == '_' {
+			if sb.Len() > 0 && sb.String()[sb.Len()-1] != '-' {
+				sb.WriteRune('-')
+			}
+		}
+	}
+	res := sb.String()
+	res = strings.Trim(res, "-")
+	if len(res) > 30 {
+		res = res[:30]
+		res = strings.TrimSuffix(res, "-")
+	}
+	if len(res) == 0 {
+		res = "app"
+	}
+	return res
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default: // "linux"
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
+}
+
+// CreateApp generates a new application from a prompt.
+func CreateApp(cfg *config.Config, prompt string) (string, string, error) {
+	trimmedPrompt := strings.TrimSpace(prompt)
+	if existingAppName, exists := cfg.Prompts[trimmedPrompt]; exists {
+		if appDir, dirExists := cfg.Apps[existingAppName]; dirExists {
+			if _, err := os.Stat(appDir); err == nil {
+				fmt.Printf("Found existing application '%s' for this prompt.\nOpening it instead of generating a new one...\n", existingAppName)
+				return existingAppName, appDir, nil
+			} else {
+				// Cleanup stale entries
+				delete(cfg.Prompts, trimmedPrompt)
+				delete(cfg.Apps, existingAppName)
+				_ = config.SaveConfig(cfg)
+			}
+		}
+	}
+
+	appName := Slugify(prompt)
+	appDir := filepath.Join(cfg.AppsDir, appName)
+
+	// Avoid overwriting existing apps by appending timestamps if directory exists
+	if _, err := os.Stat(appDir); err == nil {
+		appName = fmt.Sprintf("%s-%d", appName, time.Now().Unix()%1000)
+		appDir = filepath.Join(cfg.AppsDir, appName)
+	}
+
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		return "", "", fmt.Errorf("failed to create directory: %v", err)
+	}
+
+	// Init Git
+	if err := git.Init(appDir); err != nil {
+		return "", "", fmt.Errorf("failed to initialize git repo: %v", err)
+	}
+
+	// Set up agent client
+	prov, provCfg := cfg.GetActiveProvider()
+	client, err := agent.NewClient(prov, provCfg)
+	if err != nil {
+		return "", "", err
+	}
+
+	systemPrompt := `You are an expert Frontend Web Developer AI.
+Your task is to build a fully functional, self-contained, responsive, and visually stunning web application based on the user's prompt.
+You must return your output using specific XML tags:
+For each code file, wrap it in:
+<file name="filename">
+... code ...
+</file>
+
+For a concise summary of your changes, wrap it in:
+<summary>
+... summary ...
+</summary>
+
+Follow these guidelines:
+1. Provide a modern, clean, and premium user experience (rich aesthetics, custom font pairings, dark mode or clean themes, smooth animations, cards, glassmorphism, responsive grids).
+2. Avoid placeholders; all logic must be fully written and ready to run.
+3. Use only client-side files (HTML, CSS, JS). You can inject external libraries like Tailwind CSS (via CDN) or Google Fonts, FontAwesome, or Lucide icons if needed.
+4. For persistent data, you can read/write by making fetch calls to '_promptyly/api/db' (relative to the current path).
+   - GET _promptyly/api/db returns the stored JSON object.
+   - POST _promptyly/api/db saves the JSON object (send body as content-type application/json).
+   Use this endpoint if the application requires state persistence (e.g. keeping notes, todos, etc.) so that it survives reloads.
+`
+
+	fmt.Printf("Generating application '%s' using provider '%s' (model: %s)...\n", appName, prov, provCfg.Model)
+	resp, err := client.Generate(systemPrompt, prompt)
+	if err != nil {
+		return "", "", err
+	}
+
+	if len(resp.Files) == 0 {
+		return "", "", fmt.Errorf("agent failed to generate any files. Raw summary: %s", resp.Summary)
+	}
+
+	// Write files
+	var filesWritten []string
+	for filename, content := range resp.Files {
+		fullPath := filepath.Join(appDir, filename)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return "", "", err
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return "", "", err
+		}
+		filesWritten = append(filesWritten, filename)
+		fmt.Printf("  Created: %s (%d bytes)\n", filename, len(content))
+	}
+
+	// Save history
+	hEntry := history.ActionEntry{
+		Action:        "create",
+		Prompt:        prompt,
+		Provider:      prov,
+		Model:         provCfg.Model,
+		FilesAffected: filesWritten,
+		Summary:       resp.Summary,
+	}
+	if err := history.AddEntry(appDir, hEntry); err != nil {
+		fmt.Printf("Warning: failed to save history: %v\n", err)
+	}
+
+	// Commit Git
+	commitMsg := fmt.Sprintf("Initialize application: %s\n\nAI Summary: %s", prompt, resp.Summary)
+	if _, err := git.CommitAll(appDir, commitMsg); err != nil {
+		fmt.Printf("Warning: git commit failed: %v\n", err)
+	}
+
+	// Save to config registry
+	cfg.Apps[appName] = appDir
+	cfg.Prompts[trimmedPrompt] = appName
+	_ = config.SaveConfig(cfg)
+
+	return appName, appDir, nil
+}
+
+// EditApp processes a modification request for an existing application.
+func EditApp(cfg *config.Config, appName string, editPrompt string) error {
+	appDir, ok := cfg.Apps[appName]
+	if !ok {
+		// Try resolving as direct directory
+		if _, err := os.Stat(appName); err == nil {
+			appDir = appName
+			appName = filepath.Base(appName)
+		} else {
+			return fmt.Errorf("app '%s' not registered and not found as a path", appName)
+		}
+	}
+
+	// Read current directory code files to pass as context
+	filesContext := strings.Builder{}
+	err := filepath.Walk(appDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			// Skip .git, .promptyly, and node_modules if any
+			name := info.Name()
+			if name == ".git" || name == ".promptyly" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		rel, err := filepath.Rel(appDir, path)
+		if err != nil {
+			return err
+		}
+
+		// Only include text code files
+		ext := strings.ToLower(filepath.Ext(rel))
+		if ext == ".html" || ext == ".css" || ext == ".js" || ext == ".json" {
+			data, err := os.ReadFile(path)
+			if err == nil {
+				filesContext.WriteString(fmt.Sprintf("\n--- FILE: %s ---\n%s\n", rel, string(data)))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to read existing codebase: %v", err)
+	}
+
+	prov, provCfg := cfg.GetActiveProvider()
+	client, err := agent.NewClient(prov, provCfg)
+	if err != nil {
+		return err
+	}
+
+	systemPrompt := `You are an expert Frontend Web Developer AI.
+Your task is to modify the existing web application based on the user's edit request.
+The current code files in the directory are:
+` + filesContext.String() + `
+
+Return ONLY the files you modified or created. You do not need to return files that remain unchanged.
+Return your output using specific XML tags:
+For each code file, wrap it in:
+<file name="filename">
+... code ...
+</file>
+
+For a concise summary of your changes, wrap it in:
+<summary>
+... summary ...
+</summary>
+
+Rules:
+1. Return the entire contents of the files you modified. Do not send partial files or placeholder comments like "// no changes here".
+2. Maintain existing styles, behaviors, and structure unless explicitly asked to modify them.
+3. Keep the design premium, responsive, and clean.
+4. For data persistence, use '_promptyly/api/db' (GET to fetch, POST with body to save, relative to the current path) if applicable.
+`
+
+	fmt.Printf("Applying edits using provider '%s' (model: %s)...\n", prov, provCfg.Model)
+	resp, err := client.Generate(systemPrompt, editPrompt)
+	if err != nil {
+		return err
+	}
+
+	if len(resp.Files) == 0 {
+		return fmt.Errorf("agent did not suggest any changes. Raw summary: %s", resp.Summary)
+	}
+
+	var filesWritten []string
+	for filename, content := range resp.Files {
+		fullPath := filepath.Join(appDir, filename)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return err
+		}
+		filesWritten = append(filesWritten, filename)
+		fmt.Printf("  Updated: %s (%d bytes)\n", filename, len(content))
+	}
+
+	// Save history
+	hEntry := history.ActionEntry{
+		Action:        "edit",
+		Prompt:        editPrompt,
+		Provider:      prov,
+		Model:         provCfg.Model,
+		FilesAffected: filesWritten,
+		Summary:       resp.Summary,
+	}
+	if err := history.AddEntry(appDir, hEntry); err != nil {
+		fmt.Printf("Warning: failed to save history: %v\n", err)
+	}
+
+	// Commit Git
+	commitMsg := fmt.Sprintf("Edit application: %s\n\nAI Summary: %s", editPrompt, resp.Summary)
+	if _, err := git.CommitAll(appDir, commitMsg); err != nil {
+		fmt.Printf("Warning: git commit failed: %v\n", err)
+	}
+
+	return nil
+}
+
+// triggerReload sends a reload webhook POST request to the local server.
+func triggerReload(appName string, port int) {
+	resp, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/apps/%s/_promptyly/reload", port, appName), "application/json", nil)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+}
+
+// InteractiveSession runs the app web server and enters a CLI prompt loop for real-time edits.
+func InteractiveSession(cfg *config.Config, appName string) error {
+	appDir, ok := cfg.Apps[appName]
+	if !ok {
+		// Resolve direct path
+		if _, err := os.Stat(appName); err == nil {
+			appDir = appName
+			appName = filepath.Base(appName)
+		} else {
+			return fmt.Errorf("app '%s' not registered and not found as a path", appName)
+		}
+	}
+
+	port := cfg.ServerPort
+	if port == 0 {
+		port = 6071
+	}
+
+	_, err := server.StartDevServer(port)
+	if err != nil {
+		return fmt.Errorf("failed to start dev server: %v", err)
+	}
+
+	devURL := fmt.Sprintf("http://127.0.0.1:%d/apps/%s/", port, appName)
+	fmt.Printf("\n=========================================\n")
+	fmt.Printf("🚀 App '%s' is running!\n", appName)
+	fmt.Printf("👉 URL: %s\n", devURL)
+	fmt.Printf("📁 Path: %s\n", appDir)
+	fmt.Printf("=========================================\n\n")
+
+	openBrowser(devURL)
+
+	fmt.Println("Interactive editing mode active.")
+	fmt.Println("Describe changes you want to make (e.g., 'make the font larger', 'add a dark mode').")
+	fmt.Println("Type 'exit' to stop the dev server.")
+	fmt.Println("-----------------------------------------")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("promptyly> ")
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			continue
+		}
+
+		if strings.ToLower(input) == "exit" {
+			fmt.Println("Stopping server. Goodbye!")
+			break
+		}
+
+		fmt.Printf("\n[AI Working...] Processing request: '%s'\n", input)
+		if err := EditApp(cfg, appName, input); err != nil {
+			fmt.Printf("❌ Error: %v\n\n", err)
+		} else {
+			fmt.Println("✅ Changes applied and committed to git!")
+			fmt.Println("🔄 Triggering browser hot-reload...")
+			triggerReload(appName, port)
+			fmt.Println()
+		}
+	}
+
+	return nil
+}
+
+// ExportApp creates a zip file of the application.
+func ExportApp(cfg *config.Config, appName, outputPath string) error {
+	appDir, ok := cfg.Apps[appName]
+	if !ok {
+		if _, err := os.Stat(appName); err == nil {
+			appDir = appName
+		} else {
+			return fmt.Errorf("app '%s' not found", appName)
+		}
+	}
+
+	zipFile, err := os.Create(outputPath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	archive := zip.NewWriter(zipFile)
+	defer archive.Close()
+
+	err = filepath.Walk(appDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Exclude git history in export to keep zip lightweight, but keep .promptyly configuration/history
+		relPath, err := filepath.Rel(appDir, path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		if strings.HasPrefix(relPath, ".git") {
+			return nil
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		header.Name = filepath.ToSlash(relPath)
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			header.Method = zip.Deflate
+		}
+
+		writer, err := archive.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to zip directory: %v", err)
+	}
+
+	fmt.Printf("Successfully exported '%s' to %s\n", appName, outputPath)
+	return nil
+}
+
+// ImportApp extracts a zipped application and registers it locally.
+func ImportApp(cfg *config.Config, zipPath string) (string, error) {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+
+	baseName := strings.TrimSuffix(filepath.Base(zipPath), filepath.Ext(zipPath))
+	appName := Slugify(baseName)
+	appDir := filepath.Join(cfg.AppsDir, appName)
+
+	if _, err := os.Stat(appDir); err == nil {
+		appName = fmt.Sprintf("%s-imported-%d", appName, time.Now().Unix()%1000)
+		appDir = filepath.Join(cfg.AppsDir, appName)
+	}
+
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		return "", err
+	}
+
+	for _, file := range reader.File {
+		path := filepath.Join(appDir, file.Name)
+		if file.FileInfo().IsDir() {
+			_ = os.MkdirAll(path, file.Mode())
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return "", err
+		}
+
+		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		if err != nil {
+			return "", err
+		}
+
+		rc, err := file.Open()
+		if err != nil {
+			outFile.Close()
+			return "", err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		rc.Close()
+		outFile.Close()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Initialize git repository in the imported app folder if not present
+	if _, err := os.Stat(filepath.Join(appDir, ".git")); os.IsNotExist(err) {
+		_ = git.Init(appDir)
+		_, _ = git.CommitAll(appDir, "Imported project from zip archive")
+	}
+
+	// Register in config
+	cfg.Apps[appName] = appDir
+	_ = config.SaveConfig(cfg)
+
+	fmt.Printf("Successfully imported application as '%s' to %s\n", appName, appDir)
+	return appName, nil
+}
