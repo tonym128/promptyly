@@ -9,16 +9,29 @@ echo "=================================================="
 mkdir -p dist
 mkdir -p desktop/bin
 
+# Detect go executable path
+GO_CMD="go"
+if ! command -v go >/dev/null 2>&1; then
+  if [ -x "$HOME/.local/go/bin/go" ]; then
+    GO_CMD="$HOME/.local/go/bin/go"
+  elif [ -x "/usr/local/go/bin/go" ]; then
+    GO_CMD="/usr/local/go/bin/go"
+  else
+    echo "❌ Error: Go compiler not found! Please install Go or add it to your PATH."
+    exit 1
+  fi
+fi
+
 # 2. Compile Go daemon binaries for multiple OS architectures (Sidecar pattern)
 echo "⚙️ Compiling Go daemon binaries..."
 echo "👉 Building for Linux (amd64)..."
-GOOS=linux GOARCH=amd64 go build -o desktop/bin/promptyly main.go sharingclient.go
+GOOS=linux GOARCH=amd64 $GO_CMD build -o desktop/bin/promptyly main.go sharingclient.go
 
 echo "👉 Building for Windows (amd64)..."
-GOOS=windows GOARCH=amd64 go build -o desktop/bin/promptyly.exe main.go sharingclient.go
+GOOS=windows GOARCH=amd64 $GO_CMD build -o desktop/bin/promptyly.exe main.go sharingclient.go
 
 echo "👉 Building for macOS (arm64)..."
-GOOS=darwin GOARCH=arm64 go build -o desktop/bin/promptyly-mac main.go sharingclient.go
+GOOS=darwin GOARCH=arm64 $GO_CMD build -o desktop/bin/promptyly-mac main.go sharingclient.go
 
 # 3. Zip Browser Extension
 echo "🔌 Packaging browser extension..."

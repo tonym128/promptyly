@@ -6,9 +6,22 @@ echo "=================================================="
 echo "🚀 Bootstrapping Promptyly Desktop & Daemon..."
 echo "=================================================="
 
+# Detect go executable path
+GO_CMD="go"
+if ! command -v go >/dev/null 2>&1; then
+  if [ -x "$HOME/.local/go/bin/go" ]; then
+    GO_CMD="$HOME/.local/go/bin/go"
+  elif [ -x "/usr/local/go/bin/go" ]; then
+    GO_CMD="/usr/local/go/bin/go"
+  else
+    echo "❌ Error: Go compiler not found! Please install Go or add it to your PATH."
+    exit 1
+  fi
+fi
+
 # 1. Compile the Go developer daemon locally
 echo "⚙️  Building local developer daemon..."
-go build -o promptyly main.go sharingclient.go
+$GO_CMD build -o promptyly main.go sharingclient.go
 
 # 2. Run Go Daemon in background
 echo "🔌 Starting local daemon on port 6071..."
