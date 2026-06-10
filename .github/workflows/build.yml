@@ -1,0 +1,60 @@
+name: Build & Package Release Assets
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-go-binaries:
+    name: Build Go Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Compile Cross-Platform Binaries
+        run: |
+          mkdir -p build-assets
+          
+          # Build Linux binary
+          GOOS=linux GOARCH=amd64 go build -o build-assets/promptyly-linux main.go sharingclient.go
+          
+          # Build Windows binary
+          GOOS=windows GOARCH=amd64 go build -o build-assets/promptyly-windows.exe main.go sharingclient.go
+          
+          # Build macOS binary
+          GOOS=darwin GOARCH=arm64 go build -o build-assets/promptyly-macos main.go sharingclient.go
+
+      - name: Upload Go Binaries Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptyly-go-binaries
+          path: build-assets/*
+          if-no-files-found: error
+
+  package-extension:
+    name: Package Browser Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Extension Zip
+        run: |
+          mkdir -p dist
+          zip -r dist/promptyly-extension.zip browser-extension -x "*.git*"
+
+      - name: Upload Extension Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptyly-browser-extension
+          path: dist/promptyly-extension.zip
+          if-no-files-found: error

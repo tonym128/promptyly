@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Promptyly Link Companion",
+  "version": "1.0.0",
+  "description": "Intercepts and handles prompt:// links, letting you inspect, install, and run Promptyly apps directly from your browser.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "http://localhost:6071/*",
+    "http://127.0.0.1:6071/*",
+    "http://localhost:6072/*",
+    "http://127.0.0.1:6072/*",
+    "https://*.ngrok-free.dev/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon128.png"
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Promptyly Link Companion</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #080c14;
+      --panel-bg: #0f172a;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent-color: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-grad: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --success-color: #10b981;
+    }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      box-sizing: border-box;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .logo {
+      width: 28px;
+      height: 28px;
+      background: var(--accent-grad);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: white;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin: 0;
+      background: linear-gradient(135deg, #f8fafc 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input[type="text"], input[type="password"] {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    input[type="text"]:focus, input[type="password"]:focus {
+      outline: none;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 8px rgba(99, 102, 241, 0.2);
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .checkbox-group label {
+      text-transform: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+
+    button {
+      width: 100%;
+      background: var(--accent-grad);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.1);
+    }
+
+    button:hover {
+      box-shadow: 0 0 15px var(--accent-glow);
+      transform: translateY(-0.5px);
+    }
+
+    .status-text {
+      font-size: 0.75rem;
+      text-align: center;
+      margin-top: 10px;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+      background-color: var(--success-color);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">P</div>
+    <h1 class="title">Promptyly Link Companion</h1>
+  </div>
+
+  <div class="form-group">
+    <label for="daemon-url">Local Daemon URL</label>
+    <input type="text" id="daemon-url" placeholder="http://localhost:6071">
+  </div>
+
+  <div class="form-group">
+    <label for="daemon-token">Local Daemon Token</label>
+    <input type="password" id="daemon-token" placeholder="Local API authorization token">
+  </div>
+
+  <div class="form-group">
+    <label for="registry-url">Registry Server URL</label>
+    <input type="text" id="registry-url" placeholder="http://localhost:6072">
+  </div>
+
+  <div class="checkbox-group">
+    <input type="checkbox" id="intercept-links" checked>
+    <label for="intercept-links">Intercept <code>prompt://</code> links</label>
+  </div>
+
+  <button id="save-btn">Save Configuration</button>
+
+  <div class="status-text" id="status">
+    <span class="status-dot"></span> Active & Watching Page Clicks
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"promptyly/app"
 	"promptyly/config"
+	"promptyly/server"
 	"promptyly/urlscheme"
 	"strconv"
 	"strings"
@@ -19,6 +20,68 @@ func main() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Register API callbacks for the background daemon
+	server.CreateAppCallback = func(prompt string) (string, string, error) {
+		return app.CreateApp(cfg, prompt)
+	}
+	server.EditAppCallback = func(name, prompt string) error {
+		return app.EditApp(cfg, name, prompt)
+	}
+	server.RenameAppCallback = func(oldName, newName string) (string, error) {
+		return app.RenameApp(cfg, oldName, newName)
+	}
+	server.LinkAppCallback = func(path string) (string, error) {
+		return app.LinkApp(cfg, path)
+	}
+	server.UnlinkAppCallback = func(name string) error {
+		return app.UnlinkApp(cfg, name)
+	}
+	server.DeleteAppCallback = func(name string, deleteFolder bool) error {
+		if deleteFolder {
+			return app.DeleteApp(cfg, name)
+		}
+		return app.UnlinkApp(cfg, name)
+	}
+	server.ExportAppCallback = func(name, zipPath string) error {
+		return app.ExportApp(cfg, name, zipPath)
+	}
+	server.ImportAppCallback = func(zipPath string) (string, error) {
+		return app.ImportApp(cfg, zipPath)
+	}
+	server.UpdateMetadataCallback = func(name, newName, newPrompt string) (string, error) {
+		currentName := name
+		var err error
+		if newName != "" && newName != name {
+			currentName, err = app.RenameApp(cfg, name, newName)
+			if err != nil {
+				return "", err
+			}
+		}
+
+		oldPrompt := ""
+		for pr, appName := range cfg.Prompts {
+			if appName == currentName {
+				oldPrompt = pr
+				break
+			}
+		}
+
+		if newPrompt != oldPrompt {
+			if oldPrompt != "" {
+				delete(cfg.Prompts, oldPrompt)
+			}
+			if newPrompt != "" {
+				cfg.Prompts[newPrompt] = currentName
+			}
+			if err := config.SaveConfig(cfg); err != nil {
+				return "", err
+			}
+		}
+
+		return currentName, nil
+	}
+
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -122,6 +185,56 @@ func main() {
 			}
 		}
 
+	case "serve", "daemon":
+		port := cfg.ServerPort
+		if port == 0 {
+			port = 6071
+		}
+		_, err := server.StartDevServer(port)
+		if err != nil {
+			fmt.Printf("❌ Failed to start server: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("🚀 Promptyly background server/API running on http://127.0.0.1:%d\n", port)
+		fmt.Println("Press Ctrl+C to exit.")
+		select {}
+
+	case "publish":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: promptyly publish <app-name>")
+			return
+		}
+		appName := os.Args[2]
+		err := PublishApp(cfg, appName)
+		if err != nil {
+			fmt.Printf("❌ Publish failed: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "search":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: promptyly search \"<query>\"")
+			return
+		}
+		query := os.Args[2]
+		err := SearchApps(cfg, query)
+		if err != nil {
+			fmt.Printf("❌ Search failed: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "download":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: promptyly download <app-id>")
+			return
+		}
+		appID := os.Args[2]
+		err := DownloadApp(cfg, appID)
+		if err != nil {
+			fmt.Printf("❌ Download failed: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "register":
 		err := urlscheme.Register()
 		if err != nil {
@@ -157,9 +270,13 @@ Usage:
 Commands:
   create "<prompt>"       Generates a new app, starts the server and begins interactive editing.
   run <app-name>          Runs the local dev server and starts the interactive editing terminal.
+  serve                   Starts the background dev server and REST API daemon.
   list                    Lists all locally generated applications.
   export <app-name> <zip> Packages the application into a zip file for sharing.
   import <zip-path>       Imports a zipped application and registers it locally.
+  publish <app-name>      Uploads the app to the remote sharing registry server.
+  search "<query>"        Queries the remote sharing server for matching web apps.
+  download <app-id>       Downloads and imports an app from the sharing server.
   register                Registers the prompt:// URL scheme for browser-level deep links.
   config setup            Interactive setup guide for API Keys and LLM providers.
   config set <key> <val>  Manually set configuration settings.
@@ -241,6 +358,12 @@ func handleConfigSet(cfg *config.Config, key, val string) {
 			return
 		}
 		cfg.ServerPort = port
+	case "sharing_server_url", "sharing_url":
+		cfg.SharingServerURL = val
+	case "sharing_token":
+		cfg.SharingToken = val
+	case "check_remote_first":
+		cfg.CheckRemoteFirst = (strings.ToLower(val) == "true" || val == "1" || strings.ToLower(val) == "yes")
 	default:
 		fmt.Printf("❌ Unknown configuration key: %s\n", key)
 		return
@@ -373,48 +496,75 @@ func handleList(cfg *config.Config) {
 }
 
 func handleURL(cfg *config.Config, urlString string) {
-	u, err := url.Parse(urlString)
-	if err != nil {
-		fmt.Printf("❌ Failed to parse URL: %v\n", err)
+	if !strings.HasPrefix(urlString, "prompt://") {
+		fmt.Printf("❌ Unsupported URL: %s (expected prompt://)\n", urlString)
 		return
 	}
 
-	if u.Scheme != "prompt" {
-		fmt.Printf("❌ Unsupported URL scheme: %s (expected prompt://)\n", u.Scheme)
-		return
-	}
+	payload := strings.TrimPrefix(urlString, "prompt://")
+	var targetVal string
 
-	// In prompt://create?prompt=... Host is "create", and query values are in query
-	action := u.Host
-	switch action {
-	case "create":
-		prompt := u.Query().Get("prompt")
-		if prompt == "" {
-			fmt.Println("❌ Missing 'prompt' parameter in URL query.")
-			return
+	// Fallback/backward compatibility for legacy prompt://create?prompt=... format
+	if strings.Contains(payload, "?") {
+		u, err := url.Parse(urlString)
+		if err == nil {
+			if u.Host == "create" {
+				targetVal = u.Query().Get("prompt")
+			} else if u.Host == "run" || u.Host == "open" {
+				targetVal = u.Query().Get("name")
+			}
 		}
-		appName, _, err := app.CreateApp(cfg, prompt)
+	}
+
+	if targetVal == "" {
+		unescaped, err := url.QueryUnescape(payload)
+		if err != nil {
+			targetVal = payload
+		} else {
+			targetVal = unescaped
+		}
+	}
+
+	targetVal = strings.TrimSpace(targetVal)
+	if targetVal == "" {
+		fmt.Println("❌ Empty prompt/name in URL.")
+		return
+	}
+
+	// 1. Resolve application name by checking registry
+	appName := ""
+	targetSlug := app.Slugify(targetVal)
+
+	if _, exists := cfg.Apps[targetVal]; exists {
+		appName = targetVal
+	} else if _, exists := cfg.Apps[targetSlug]; exists {
+		appName = targetSlug
+	} else {
+		// 2. Check if it matches an associated prompt text
+		for pr, name := range cfg.Prompts {
+			if strings.EqualFold(pr, targetVal) {
+				appName = name
+				break
+			}
+		}
+	}
+
+	if appName != "" {
+		fmt.Printf("🚀 Found existing application '%s'. Running it...\n", appName)
+		err := app.InteractiveSession(cfg, appName)
+		if err != nil {
+			fmt.Printf("❌ Run session failed: %v\n", err)
+		}
+	} else {
+		fmt.Printf("✨ Application not found for '%s'. Creating new application...\n", targetVal)
+		newName, _, err := app.CreateApp(cfg, targetVal)
 		if err != nil {
 			fmt.Printf("❌ Failed to create app: %v\n", err)
 			return
 		}
-		err = app.InteractiveSession(cfg, appName)
+		err = app.InteractiveSession(cfg, newName)
 		if err != nil {
 			fmt.Printf("❌ Dev session failed: %v\n", err)
 		}
-
-	case "run", "open":
-		name := u.Query().Get("name")
-		if name == "" {
-			fmt.Println("❌ Missing 'name' parameter in URL query.")
-			return
-		}
-		err = app.InteractiveSession(cfg, name)
-		if err != nil {
-			fmt.Printf("❌ Dev session failed: %v\n", err)
-		}
-
-	default:
-		fmt.Printf("❌ Unknown URL action command: %s\n", action)
 	}
 }

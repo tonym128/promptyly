@@ -1,0 +1,34 @@
+# Secrets & Config
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Compiled binaries
+/promptyly
+/sharing-server
+/sharing/sharing-server
+
+# Local database folders & sharing assets
+/sharing/data/
+
+# Frontend dependencies
+/desktop/node_modules/
+/desktop/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# Logs & temporary files
+*.log
+/daemon.log
+.DS_Store
+
+# Compiled sidecar binaries and packaging output
+/desktop/bin/
+/dist/
+/build-assets/
+/promptyly_bin
+/promptyly_bin.exe
+/sharing_bin

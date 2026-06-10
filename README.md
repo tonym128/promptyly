@@ -112,3 +112,81 @@ Generated applications can easily persist data without writing any backend code.
   });
   ```
 All database files are kept inside the project folder so they are automatically tracked by git and included when you zip/export your app!
+
+---
+
+## Architecture & Services
+
+Promptyly is structured as a multi-component workspace:
+
+1. **Go CLI Engine (`promptyly`)**: The core application engine (defined in [main.go](file:///home/tonym/Projects/promptyly/main.go)) that manages AI generation, local Git version control, app deep links registration, and interactive edit sessions.
+2. **Local Daemon Server**: A unified HTTP server (defined in [server/server.go](file:///home/tonym/Projects/promptyly/server/server.go)) hosting:
+   * **Promptyly Hub**: The dark-mode dashboard home page.
+   * **Web Apps**: Renders generated sites dynamically.
+   * **Hot Reloading & JSON DB**: Embeds SSE reload triggers and serves local persistence DB queries.
+3. **Desktop Application**: An Electron-based visual wrapper located in the [desktop/](file:///home/tonym/Projects/promptyly/desktop) directory offering a dual side-by-side app preview, chat sidebar interface, and setting panels.
+
+---
+
+## Desktop App Build & Run
+
+To run the visual desktop environment locally:
+
+1. Compile the main Go binary:
+   ```bash
+   go build -o promptyly main.go
+   ```
+2. Navigate to the desktop folder and launch the app:
+   ```bash
+   cd desktop
+   npm install
+   npm start
+   ```
+
+---
+
+## Sharing Registry Integration
+
+Promptyly includes a remote sharing registry server (configured by default to port `6072`). You can publish your creations, search other developers' apps, or download them to your local environment.
+
+### CLI Commands for Sharing
+* **Publish an app to the registry**:
+  ```bash
+  promptyly publish <app-name>
+  ```
+  *(If your API token is not yet configured, the CLI will interactively guide you to register, log in, or paste a token)*
+* **Search the remote registry**:
+  ```bash
+  promptyly search "<query>"
+  ```
+* **Download and install a shared app locally**:
+  ```bash
+  promptyly download <app-id>
+  ```
+
+---
+
+## Browser Extension Interceptor
+
+A native browser extension (Manifest V3 compatible) is available under `/browser-extension`. It intercepts all link clicks matching the custom `prompt://` scheme and opens a premium dashboard modal containing:
+* App details, description, original prompt, and creator username.
+* An **Open Application** button (if the app is already installed locally).
+* An **Install Locally** button (which commands the local daemon to download and initialize the app).
+* A **Generate Locally** button (if the link specifies a new app request with an encoded prompt).
+
+To load it in your browser:
+* **Chrome**: Navigate to `chrome://extensions/`, enable Developer Mode, and click "Load unpacked", choosing the `browser-extension` folder.
+* **Firefox**: Navigate to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and select the `manifest.json` file.
+
+---
+
+## 🛠️ Desktop Distribution & Scripts
+
+To make Promptyly easy to launch and distribute on desktop machines, the following utilities have been added:
+
+1. **One-Command Startup Scripts**:
+   - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server, and boot the Electron UI app in one go.
+2. **Unified Docker Environment**:
+   - Run `docker compose up -d` using the root **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)** to launch the developer daemon, the registry server, and an integrated ngrok tunnel concurrently.
+3. **Packaging Utility**:
+   - Run **[`./package.sh`](file:///home/tonym/Projects/promptyly/package.sh)** to cross-compile Go daemon binaries for Windows, macOS, and Linux, and output them to the Electron `bin/` directory for desktop compilation, while bundling the browser extension as a ready-to-release ZIP archive.

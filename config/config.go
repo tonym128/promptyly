@@ -13,12 +13,15 @@ type ProviderConfig struct {
 }
 
 type Config struct {
-	DefaultProvider string                    `json:"default_provider"`
-	Providers       map[string]ProviderConfig `json:"providers"`
-	AppsDir         string                    `json:"apps_dir"`
-	Apps            map[string]string         `json:"apps"`    // AppName -> DirectoryPath
-	Prompts         map[string]string         `json:"prompts"` // PromptText -> AppName
-	ServerPort      int                       `json:"server_port"`
+	DefaultProvider  string                    `json:"default_provider"`
+	Providers        map[string]ProviderConfig `json:"providers"`
+	AppsDir          string                    `json:"apps_dir"`
+	Apps             map[string]string         `json:"apps"`    // AppName -> DirectoryPath
+	Prompts          map[string]string         `json:"prompts"` // PromptText -> AppName
+	SharingServerURL string                    `json:"sharing_server_url"`
+	SharingToken     string                    `json:"sharing_token"`
+	CheckRemoteFirst bool                      `json:"check_remote_first"`
+	ServerPort       int                       `json:"server_port"`
 }
 
 func GetConfigDir() (string, error) {
@@ -65,9 +68,11 @@ func LoadConfig() (*Config, error) {
 				Model: "meta-llama-3-8b-instruct",
 			},
 		},
-		Apps:       make(map[string]string),
-		Prompts:    make(map[string]string),
-		ServerPort: 6071,
+		Apps:             make(map[string]string),
+		Prompts:          make(map[string]string),
+		ServerPort:       6071,
+		SharingServerURL: "http://localhost:6072",
+		CheckRemoteFirst: true,
 	}
 
 	home, err := os.UserHomeDir()
@@ -111,6 +116,13 @@ func LoadConfig() (*Config, error) {
 	} else {
 		cfg.ServerPort = 6071
 	}
+	if loadedConfig.SharingServerURL != "" {
+		cfg.SharingServerURL = loadedConfig.SharingServerURL
+	}
+	if loadedConfig.SharingToken != "" {
+		cfg.SharingToken = loadedConfig.SharingToken
+	}
+	cfg.CheckRemoteFirst = loadedConfig.CheckRemoteFirst
 	for k, v := range loadedConfig.Providers {
 		cfg.Providers[k] = v
 	}
