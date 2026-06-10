@@ -17,19 +17,28 @@
 
 ---
 
-## Installation
+## Installation & Setup
 
-### 1. Compile the Binary
-Ensure you have Go (1.20+) installed. Run the build command:
-```bash
-go build -o promptyly main.go
-```
+You can build and set up the entire Promptyly developer suite (Go Daemon, Sharing Registry, Desktop App dependencies, and Browser Extension) using a single command:
 
-### 2. Move to Path (Optional)
-Move the compiled binary to a directory in your system `$PATH` (e.g. `/usr/local/bin` or `~/.local/bin`):
-```bash
-mv promptyly ~/.local/bin/
-```
+### 1. Run the Unified Builder
+* **Linux / macOS**:
+  ```bash
+  ./build_all.sh
+  ```
+* **Windows (PowerShell)**:
+  ```powershell
+  .\build_all.ps1
+  ```
+*(These scripts compile the local Go binaries, restore node dependencies for the desktop environment, and package the browser extension inside the `dist/` directory)*
+
+### 2. Move Daemon to System PATH (Optional)
+To run the CLI tool globally from any directory:
+* **Linux / macOS**:
+  ```bash
+  mv promptyly ~/.local/bin/  # Or another path in your $PATH
+  ```
+* **Windows**: Add the folder containing `promptyly.exe` to your user **Environment Variables -> PATH**.
 
 ---
 
@@ -66,10 +75,14 @@ promptyly run a-sleek-dark-mode-pomodoro-timer
 ```
 Once loaded, you can type updates in your terminal like `add a dark mode toggle` or `change default time to 45 mins`, and watch the browser update in real-time.
 
-### 4. Register the Custom URL Scheme
+### 4. Register/Unregister the Custom URL Scheme
 Register the `prompt://` protocol handler in your operating system registry (Windows) or desktop database (Linux):
 ```bash
 promptyly register
+```
+Or unregister it:
+```bash
+promptyly unregister
 ```
 
 ### 5. Open Deep Links (URL Handler)

@@ -418,6 +418,9 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 		}
 
 		fmt.Printf("\n[AI Working...] Processing request: '%s'\n", input)
+		if freshCfg, err := config.LoadConfig(); err == nil {
+			cfg = freshCfg
+		}
 		if err := EditApp(cfg, appName, input); err != nil {
 			fmt.Printf("❌ Error: %v\n\n", err)
 		} else {

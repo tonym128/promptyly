@@ -97,3 +97,58 @@ func registerMacOS(execPath string) error {
 	fmt.Printf("Or run the CLI commands directly: promptyly create \"...\"\n")
 	return nil
 }
+
+// Unregister unregisters the prompt:// custom URL scheme handler from the host OS.
+func Unregister() error {
+	switch runtime.GOOS {
+	case "linux":
+		return unregisterLinux()
+	case "windows":
+		return unregisterWindows()
+	case "darwin":
+		return unregisterMacOS()
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+func unregisterLinux() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	appsDir := filepath.Join(home, ".local", "share", "applications")
+	desktopFile := filepath.Join(appsDir, "promptyly-url-handler.desktop")
+
+	if _, err := os.Stat(desktopFile); err == nil {
+		if err := os.Remove(desktopFile); err != nil {
+			return fmt.Errorf("failed to remove desktop file: %v", err)
+		}
+	}
+
+	// Update desktop database
+	cmd := exec.Command("update-desktop-database", appsDir)
+	_ = cmd.Run()
+
+	fmt.Println("Successfully unregistered prompt:// URL scheme handler on Linux.")
+	return nil
+}
+
+func unregisterWindows() error {
+	cmd := exec.Command("reg", "delete", "HKCR\\prompt", "/f")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to delete registry key: %v", err)
+	}
+
+	fmt.Println("Successfully unregistered prompt:// URL scheme handler from Windows registry.")
+	return nil
+}
+
+func unregisterMacOS() error {
+	// macOS URL handler registration is managed by Info.plist of the App Bundle,
+	// so for CLI it's not applicable.
+	fmt.Println("Custom URL protocol unregistration on macOS is not applicable.")
+	return nil
+}
+

@@ -23,44 +23,80 @@ func main() {
 
 	// Register API callbacks for the background daemon
 	server.CreateAppCallback = func(prompt string) (string, string, error) {
-		return app.CreateApp(cfg, prompt)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.CreateApp(freshCfg, prompt)
 	}
 	server.EditAppCallback = func(name, prompt string) error {
-		return app.EditApp(cfg, name, prompt)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.EditApp(freshCfg, name, prompt)
 	}
 	server.RenameAppCallback = func(oldName, newName string) (string, error) {
-		return app.RenameApp(cfg, oldName, newName)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.RenameApp(freshCfg, oldName, newName)
 	}
 	server.LinkAppCallback = func(path string) (string, error) {
-		return app.LinkApp(cfg, path)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.LinkApp(freshCfg, path)
 	}
 	server.UnlinkAppCallback = func(name string) error {
-		return app.UnlinkApp(cfg, name)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.UnlinkApp(freshCfg, name)
 	}
 	server.DeleteAppCallback = func(name string, deleteFolder bool) error {
-		if deleteFolder {
-			return app.DeleteApp(cfg, name)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to reload config: %v", err)
 		}
-		return app.UnlinkApp(cfg, name)
+		if deleteFolder {
+			return app.DeleteApp(freshCfg, name)
+		}
+		return app.UnlinkApp(freshCfg, name)
 	}
 	server.ExportAppCallback = func(name, zipPath string) error {
-		return app.ExportApp(cfg, name, zipPath)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.ExportApp(freshCfg, name, zipPath)
 	}
 	server.ImportAppCallback = func(zipPath string) (string, error) {
-		return app.ImportApp(cfg, zipPath)
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to reload config: %v", err)
+		}
+		return app.ImportApp(freshCfg, zipPath)
 	}
 	server.UpdateMetadataCallback = func(name, newName, newPrompt string) (string, error) {
+		freshCfg, err := config.LoadConfig()
+		if err != nil {
+			return "", fmt.Errorf("failed to reload config: %v", err)
+		}
 		currentName := name
-		var err error
+		var err2 error
 		if newName != "" && newName != name {
-			currentName, err = app.RenameApp(cfg, name, newName)
-			if err != nil {
-				return "", err
+			currentName, err2 = app.RenameApp(freshCfg, name, newName)
+			if err2 != nil {
+				return "", err2
 			}
 		}
 
 		oldPrompt := ""
-		for pr, appName := range cfg.Prompts {
+		for pr, appName := range freshCfg.Prompts {
 			if appName == currentName {
 				oldPrompt = pr
 				break
@@ -69,12 +105,12 @@ func main() {
 
 		if newPrompt != oldPrompt {
 			if oldPrompt != "" {
-				delete(cfg.Prompts, oldPrompt)
+				delete(freshCfg.Prompts, oldPrompt)
 			}
 			if newPrompt != "" {
-				cfg.Prompts[newPrompt] = currentName
+				freshCfg.Prompts[newPrompt] = currentName
 			}
-			if err := config.SaveConfig(cfg); err != nil {
+			if err := config.SaveConfig(freshCfg); err != nil {
 				return "", err
 			}
 		}
@@ -242,6 +278,13 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "unregister":
+		err := urlscheme.Unregister()
+		if err != nil {
+			fmt.Printf("❌ Unregistration failed: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "handle":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: promptyly handle \"<prompt-url>\"")
@@ -278,6 +321,7 @@ Commands:
   search "<query>"        Queries the remote sharing server for matching web apps.
   download <app-id>       Downloads and imports an app from the sharing server.
   register                Registers the prompt:// URL scheme for browser-level deep links.
+  unregister              Unregisters the prompt:// URL scheme from the operating system.
   config setup            Interactive setup guide for API Keys and LLM providers.
   config set <key> <val>  Manually set configuration settings.
   config show             Show current configuration details.

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"promptyly/config"
+	"promptyly/urlscheme"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +27,9 @@ var (
 
 	apiToken string
 
+	cachedConfig   *config.Config
+	cachedConfigMu sync.Mutex
+
 	// Callbacks to decouple server from app package (avoiding cyclic imports)
 	CreateAppCallback func(prompt string) (string, string, error)
 	EditAppCallback   func(name, prompt string) error
@@ -37,6 +41,30 @@ var (
 	UpdateMetadataCallback func(name, newName, newPrompt string) (string, error)
 	ImportAppCallback func(zipPath string) (string, error)
 )
+
+func getCachedConfig() (*config.Config, error) {
+	cachedConfigMu.Lock()
+	defer cachedConfigMu.Unlock()
+	if cachedConfig == nil {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return nil, err
+		}
+		cachedConfig = cfg
+	}
+	return cachedConfig, nil
+}
+
+func reloadCachedConfig() (*config.Config, error) {
+	cachedConfigMu.Lock()
+	defer cachedConfigMu.Unlock()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	cachedConfig = cfg
+	return cachedConfig, nil
+}
 
 // RegisterClient registers a SSE connection channel for a specific application.
 func RegisterClient(appName string, ch chan string) {
@@ -192,7 +220,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
+	cfg, err := getCachedConfig()
 	if err != nil {
 		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1322,7 +1350,7 @@ func appsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
+	cfg, err := getCachedConfig()
 	if err != nil {
 		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1464,6 +1492,10 @@ func StartDevServer(defaultPort int) (int, error) {
 	mux.HandleFunc("/api/apps/update-metadata", withAuth(apiUpdateMetadataHandler))
 	mux.HandleFunc("/api/apps/download", withAuth(apiDownloadAppHandler))
 	mux.HandleFunc("/api/apps/publish", withAuth(apiPublishAppHandler))
+	mux.HandleFunc("/api/apps/import", withAuth(apiImportAppHandler))
+	mux.HandleFunc("/api/apps/search", withAuth(apiSearchAppsHandler))
+	mux.HandleFunc("/api/protocol/register", withAuth(apiProtocolRegisterHandler))
+	mux.HandleFunc("/api/protocol/unregister", withAuth(apiProtocolUnregisterHandler))
 	mux.HandleFunc("/api/config", withAuth(apiConfigHandler))
 
 	go func() {
@@ -1490,7 +1522,7 @@ func apiAppsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
+	cfg, err := getCachedConfig()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1714,7 +1746,7 @@ func apiConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "GET" {
-		cfg, err := config.LoadConfig()
+		cfg, err := getCachedConfig()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1734,6 +1766,9 @@ func apiConfigHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		cachedConfigMu.Lock()
+		cachedConfig = &loadedConfig
+		cachedConfigMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 		return
@@ -1842,7 +1877,7 @@ func apiDownloadAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
+	cfg, err := reloadCachedConfig()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1920,7 +1955,7 @@ func apiPublishAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
+	cfg, err := reloadCachedConfig()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return
