@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,19 +31,19 @@ func main() {
 	}
 
 	// Register API callbacks for the background daemon
-	server.CreateAppCallback = func(prompt string, onToken func(token string)) (string, string, error) {
+	server.CreateAppCallback = func(ctx context.Context, prompt string, onToken func(token string)) (string, string, error) {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return "", "", fmt.Errorf("failed to reload config: %v", err)
 		}
-		return app.CreateApp(freshCfg, prompt, onToken)
+		return app.CreateApp(ctx, freshCfg, prompt, onToken)
 	}
-	server.EditAppCallback = func(name, prompt string, onToken func(token string)) error {
+	server.EditAppCallback = func(ctx context.Context, name, prompt string, onToken func(token string)) error {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return fmt.Errorf("failed to reload config: %v", err)
 		}
-		return app.EditApp(freshCfg, name, prompt, onToken)
+		return app.EditApp(ctx, freshCfg, name, prompt, onToken)
 	}
 	server.RenameAppCallback = func(oldName, newName string) (string, error) {
 		freshCfg, err := config.LoadConfig()

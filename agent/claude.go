@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,7 +48,7 @@ func NewClaudeClient(cfg config.ProviderConfig) *ClaudeClient {
 	return &ClaudeClient{Config: cfg}
 }
 
-func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
+func (c *ClaudeClient) Generate(ctx context.Context, systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.APIKey == "" {
 		return nil, fmt.Errorf("Claude API key is not set. Configure it with 'promptyly config set claude_key <key>'")
 	}
@@ -70,7 +71,7 @@ func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(to
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return nil, err
 	}

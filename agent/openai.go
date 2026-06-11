@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -91,7 +92,7 @@ func resolveURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + "/v1/chat/completions"
 }
 
-func (c *OpenAIClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
+func (c *OpenAIClient) Generate(ctx context.Context, systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.URL == "" {
 		return nil, fmt.Errorf("URL endpoint is not configured for %s", c.ProviderKey)
 	}
@@ -116,7 +117,7 @@ func (c *OpenAIClient) Generate(systemPrompt, userPrompt string, onToken func(to
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return nil, err
 	}

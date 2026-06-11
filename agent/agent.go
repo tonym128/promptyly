@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"regexp"
 	"strings"
 )
@@ -19,7 +20,7 @@ type Response struct {
 
 // Agent defines the interface for communicating with LLM providers.
 type Agent interface {
-	Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error)
+	Generate(ctx context.Context, systemPrompt, userPrompt string, onToken func(token string)) (*Response, error)
 }
 
 var (

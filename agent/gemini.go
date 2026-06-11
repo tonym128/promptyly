@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,7 +56,7 @@ func NewGeminiClient(cfg config.ProviderConfig) *GeminiClient {
 	return &GeminiClient{Config: cfg}
 }
 
-func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
+func (c *GeminiClient) Generate(ctx context.Context, systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.APIKey == "" {
 		return nil, fmt.Errorf("Gemini API key is not set. Configure it with 'promptyly config set gemini_key <key>'")
 	}
@@ -88,7 +89,7 @@ func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(to
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return nil, err
 	}

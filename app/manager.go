@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,7 +63,7 @@ func OpenBrowser(url string) {
 
 
 // CreateApp generates a new application from a prompt.
-func CreateApp(cfg *config.Config, prompt string, onToken func(token string)) (string, string, error) {
+func CreateApp(ctx context.Context, cfg *config.Config, prompt string, onToken func(token string)) (string, string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
 	if existingAppName, exists := cfg.Prompts[trimmedPrompt]; exists {
 		if appDir, dirExists := cfg.Apps[existingAppName]; dirExists {
@@ -138,7 +139,7 @@ Follow these guidelines:
 `
 
 	fmt.Printf("Generating application '%s' using provider '%s' (model: %s)...\n", appName, prov, provCfg.Model)
-	resp, err := client.Generate(systemPrompt, prompt, onToken)
+	resp, err := client.Generate(ctx, systemPrompt, prompt, onToken)
 	if err != nil {
 		return "", "", err
 	}
@@ -236,7 +237,7 @@ You are editing the application: **%s**.
 }
 
 // EditApp processes a modification request for an existing application.
-func EditApp(cfg *config.Config, appName string, editPrompt string, onToken func(token string)) error {
+func EditApp(ctx context.Context, cfg *config.Config, appName string, editPrompt string, onToken func(token string)) error {
 	appDir := cfg.ResolveAppPath(appName)
 	if appDir == "" {
 		// Try resolving as direct directory
@@ -313,7 +314,7 @@ Rules:
 `
 
 	fmt.Printf("Applying edits using provider '%s' (model: %s)...\n", prov, provCfg.Model)
-	resp, err := client.Generate(systemPrompt, editPrompt, onToken)
+	resp, err := client.Generate(ctx, systemPrompt, editPrompt, onToken)
 	if err != nil {
 		return err
 	}

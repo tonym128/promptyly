@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -31,8 +32,8 @@ var (
 	cachedConfigMu sync.Mutex
 
 	// Callbacks to decouple server from app package (avoiding cyclic imports)
-	CreateAppCallback func(prompt string, onToken func(token string)) (string, string, error)
-	EditAppCallback   func(name, prompt string, onToken func(token string)) error
+	CreateAppCallback func(ctx context.Context, prompt string, onToken func(token string)) (string, string, error)
+	EditAppCallback   func(ctx context.Context, name, prompt string, onToken func(token string)) error
 	RenameAppCallback func(oldName, newName string) (string, error)
 	LinkAppCallback   func(path string) (string, error)
 	UnlinkAppCallback func(name string) error
@@ -1972,7 +1973,7 @@ func apiCreateAppHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	appName, appPath, err := CreateAppCallback(req.Prompt, onToken)
+	appName, appPath, err := CreateAppCallback(r.Context(), req.Prompt, onToken)
 	if err != nil {
 		mu.Lock()
 		msg, _ := json.Marshal(map[string]interface{}{
@@ -2041,7 +2042,7 @@ func apiEditAppHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err := EditAppCallback(req.Name, req.Prompt, onToken)
+	err := EditAppCallback(r.Context(), req.Name, req.Prompt, onToken)
 	if err != nil {
 		mu.Lock()
 		msg, _ := json.Marshal(map[string]interface{}{
