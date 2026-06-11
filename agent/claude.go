@@ -1,12 +1,14 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"promptyly/config"
+	"strings"
 )
 
 type ClaudeClient struct {
@@ -24,6 +26,7 @@ type claudeRequest struct {
 	System      string          `json:"system,omitempty"`
 	Messages    []claudeMessage `json:"messages"`
 	Temperature float64         `json:"temperature,omitempty"`
+	Stream      bool            `json:"stream,omitempty"`
 }
 
 type claudeResponse struct {
@@ -59,6 +62,7 @@ func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(to
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature: 0.2,
+		Stream:      onToken != nil,
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)
@@ -81,18 +85,59 @@ func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(to
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var claudeErr claudeResponse
 		_ = json.Unmarshal(bodyBytes, &claudeErr)
 		if claudeErr.Error != nil {
 			return nil, fmt.Errorf("Claude API error (HTTP %d): %s", resp.StatusCode, claudeErr.Error.Message)
 		}
 		return nil, fmt.Errorf("Claude API HTTP status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	if onToken != nil {
+		reader := bufio.NewReader(resp.Body)
+		var fullText strings.Builder
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "" {
+				continue
+			}
+
+			var event struct {
+				Type  string `json:"type"`
+				Delta *struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"delta,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &event); err == nil {
+				if event.Type == "content_block_delta" && event.Delta != nil && event.Delta.Text != "" {
+					fullText.WriteString(event.Delta.Text)
+					onToken(event.Delta.Text)
+				}
+			}
+		}
+		return ParseResponse(fullText.String()), nil
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	var claudeResp claudeResponse
@@ -105,8 +150,5 @@ func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(to
 	}
 
 	responseText := claudeResp.Content[0].Text
-	if onToken != nil {
-		onToken(responseText)
-	}
 	return ParseResponse(responseText), nil
 }

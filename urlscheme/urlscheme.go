@@ -58,6 +58,9 @@ NoDisplay=true
 	_ = cmd.Run()
 
 	// Set as default scheme handler
+	if _, err := exec.LookPath("xdg-mime"); err != nil {
+		return fmt.Errorf("xdg-mime not found in PATH. A desktop environment with xdg-utils is required to register URL schemes on Linux")
+	}
 	cmd = exec.Command("xdg-mime", "default", "promptyly-url-handler.desktop", "x-scheme-handler/prompt")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to register mime type with xdg-mime: %v", err)

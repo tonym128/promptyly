@@ -951,9 +951,20 @@ func sendServerEditRequest(port int, appName, prompt string) error {
 					overallTPS = float64(totalTokens) / elapsedOverall
 				}
 
+				// Include current interval in graph for immediate feedback
+				var currentTPS float64
+				elapsedSeconds := elapsedInterval.Seconds()
+				if elapsedSeconds > 0 {
+					currentTPS = float64(intervalTokens) / elapsedSeconds
+				}
+				tempHistory := append(history, currentTPS)
+				if len(tempHistory) > 12 {
+					tempHistory = tempHistory[1:]
+				}
+
 				var sb strings.Builder
 				sb.WriteString(fmt.Sprintf("\rTokens Generated: %d tokens  |  Speed: %.1f tokens/sec\n", totalTokens, overallTPS))
-				sb.WriteString(DrawTPSGraph(history))
+				sb.WriteString(DrawTPSGraph(tempHistory))
 
 				if totalTokens > 1 {
 					fmt.Print("\033[9A")

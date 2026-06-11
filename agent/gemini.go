@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"promptyly/config"
+	"strings"
 )
 
 type GeminiClient struct {
@@ -60,6 +61,9 @@ func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(to
 	}
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.Config.Model, c.Config.APIKey)
+	if onToken != nil {
+		url = fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?key=%s", c.Config.Model, c.Config.APIKey)
+	}
 
 	reqBody := geminiRequest{
 		Contents: []geminiContent{
@@ -97,18 +101,48 @@ func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(to
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var geminiErr geminiResponse
 		_ = json.Unmarshal(bodyBytes, &geminiErr)
 		if geminiErr.Error != nil {
 			return nil, fmt.Errorf("Gemini API error (HTTP %d): %s", resp.StatusCode, geminiErr.Error.Message)
 		}
 		return nil, fmt.Errorf("Gemini API HTTP status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	if onToken != nil {
+		dec := json.NewDecoder(resp.Body)
+		t, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read stream start token: %v", err)
+		}
+		delim, ok := t.(json.Delim)
+		if !ok || delim != '[' {
+			return nil, fmt.Errorf("expected JSON array start in stream response, got: %v", t)
+		}
+
+		var fullText strings.Builder
+		for dec.More() {
+			var chunk geminiResponse
+			if err := dec.Decode(&chunk); err != nil {
+				return nil, fmt.Errorf("failed to decode chunk: %v", err)
+			}
+			if len(chunk.Candidates) > 0 && len(chunk.Candidates[0].Content.Parts) > 0 {
+				txt := chunk.Candidates[0].Content.Parts[0].Text
+				if txt != "" {
+					fullText.WriteString(txt)
+					onToken(txt)
+				}
+			}
+		}
+		_, _ = dec.Token() // Read closing bracket
+		return ParseResponse(fullText.String()), nil
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	var geminiResp geminiResponse
@@ -121,8 +155,5 @@ func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(to
 	}
 
 	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
-	if onToken != nil {
-		onToken(responseText)
-	}
 	return ParseResponse(responseText), nil
 }

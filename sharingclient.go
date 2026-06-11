@@ -336,3 +336,51 @@ func DownloadApp(cfg *config.Config, appID string) error {
 	fmt.Printf("👉 Run it locally: promptyly run %s\n\n", importedName)
 	return nil
 }
+
+func DeleteRemoteApp(cfg *config.Config, appName string) error {
+	serverURL := cfg.SharingServerURL
+	if serverURL == "" {
+		serverURL = "http://localhost:6072"
+	}
+
+	token := cfg.SharingToken
+	if token == "" {
+		// No token configured, skip deleting on remote
+		return nil
+	}
+
+	remoteID := appName
+	if strings.HasPrefix(appName, "promptyly-dl-") {
+		remoteID = strings.TrimPrefix(appName, "promptyly-dl-")
+	}
+
+	u := fmt.Sprintf("%s/api/apps/delete/%s", strings.TrimSuffix(serverURL, "/"), remoteID)
+	req, err := http.NewRequest("POST", u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		// Not found on remote, which is fine (was never published or already deleted)
+		return nil
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("unauthorized to delete remote app '%s' (status %d)", remoteID, resp.StatusCode)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("sharing server error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}

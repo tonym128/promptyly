@@ -323,6 +323,18 @@ func (s *Store) GetApp(id string) (*App, bool) {
 	return app, exists
 }
 
+func (s *Store) DeleteApp(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.Apps[id]; !exists {
+		return fmt.Errorf("app '%s' not found", id)
+	}
+
+	delete(s.Apps, id)
+	return s.saveLocked()
+}
+
 func (s *Store) IncrementViews(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

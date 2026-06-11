@@ -15,6 +15,7 @@ import (
 	"promptyly/app"
 	"promptyly/config"
 	"promptyly/server"
+	"promptyly/urlscheme"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +70,9 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("failed to reload config: %v", err)
 		}
+		// Attempt to delete remote app from registry if configured
+		_ = DeleteRemoteApp(freshCfg, name)
+
 		if deleteFolder {
 			return app.DeleteApp(freshCfg, name)
 		}
@@ -204,6 +208,36 @@ func main() {
 			fmt.Printf("❌ Run session failed: %v\n", err)
 			os.Exit(1)
 		}
+
+	case "delete":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: promptyly delete <app-name>")
+			return
+		}
+		appName := os.Args[2]
+
+		// Confirm deletion
+		confirmStr := promptInput(fmt.Sprintf("Are you sure you want to delete '%s'? This will remove it locally and from the remote registry if published. (y/N): ", appName))
+		if strings.ToLower(confirmStr) != "y" && strings.ToLower(confirmStr) != "yes" {
+			fmt.Println("Deletion cancelled.")
+			return
+		}
+
+		// Also check if we want to delete files from disk
+		deleteFilesStr := promptInput("Do you also want to permanently delete the application files on disk? (y/N): ")
+		deleteFolder := strings.ToLower(deleteFilesStr) == "y" || strings.ToLower(deleteFilesStr) == "yes"
+
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"name":         appName,
+			"deleteFolder": deleteFolder,
+		})
+		_, err = sendServerRequest(port, "POST", "/api/apps/delete", reqBody)
+		if err != nil {
+			fmt.Printf("❌ Deletion failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("✅ Application deleted successfully!")
 
 	case "list":
 		respBytes, err := sendServerRequest(port, "GET", "/api/apps", nil)
@@ -444,8 +478,8 @@ func main() {
 		fmt.Printf("👉 Run it locally: promptyly run %s\n\n", respData.AppName)
 
 	case "register":
-		fmt.Println("Registering custom protocol URL scheme via Promptyly server...")
-		_, err := sendServerRequest(port, "POST", "/api/protocol/register", nil)
+		fmt.Println("Registering custom protocol URL scheme...")
+		err := urlscheme.Register()
 		if err != nil {
 			fmt.Printf("❌ Registration failed: %v\n", err)
 			os.Exit(1)
@@ -453,8 +487,8 @@ func main() {
 		fmt.Println("Successfully registered prompt:// URL scheme handler.")
 
 	case "unregister":
-		fmt.Println("Unregistering custom protocol URL scheme via Promptyly server...")
-		_, err := sendServerRequest(port, "POST", "/api/protocol/unregister", nil)
+		fmt.Println("Unregistering custom protocol URL scheme...")
+		err := urlscheme.Unregister()
 		if err != nil {
 			fmt.Printf("❌ Unregistration failed: %v\n", err)
 			os.Exit(1)
@@ -492,6 +526,7 @@ Commands:
   run <app-name>          Runs the local dev server and starts the interactive editing terminal.
   serve                   Starts the background dev server and REST API daemon.
   list                    Lists all locally generated applications.
+  delete <app-name>       Deletes the application locally and from the remote registry.
   export <app-name> <zip> Packages the application into a zip file for sharing.
   import <zip-path>       Imports a zipped application and registers it locally.
   publish <app-name>      Uploads the app to the remote sharing registry server.
@@ -1227,9 +1262,20 @@ func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
 				overallTPS = float64(totalTokens) / elapsedOverall
 			}
 
+			// Include current interval in graph for immediate feedback
+			var currentTPS float64
+			elapsedSeconds := elapsedInterval.Seconds()
+			if elapsedSeconds > 0 {
+				currentTPS = float64(intervalTokens) / elapsedSeconds
+			}
+			tempHistory := append(history, currentTPS)
+			if len(tempHistory) > 12 {
+				tempHistory = tempHistory[1:]
+			}
+
 			var sb strings.Builder
 			sb.WriteString(fmt.Sprintf("\rTokens Generated: %d tokens  |  Speed: %.1f tokens/sec\n", totalTokens, overallTPS))
-			sb.WriteString(app.DrawTPSGraph(history))
+			sb.WriteString(app.DrawTPSGraph(tempHistory))
 
 			if totalTokens > 1 {
 				fmt.Print("\033[9A")

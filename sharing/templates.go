@@ -589,6 +589,13 @@ func RenderAppDetail(app *App, user *User, token string) string {
 	cliImportCommand := fmt.Sprintf("promptyly import %s.zip", app.ID)
 	cliURLCommand := fmt.Sprintf("promptyly handle \"prompt://%s\"", app.ID)
 
+	deleteBtnHTML := ""
+	if user != nil && app.UserID == user.ID {
+		deleteBtnHTML = fmt.Sprintf(`
+                    <button onclick="deleteApp('%s')" class="nav-btn" style="padding: 14px; text-align: center; font-size: 1rem; display: block; width: 100%%; cursor: pointer; background: rgba(239, 68, 68, 0.08); border: 1px solid var(--error-color); color: #fca5a5; margin-top: 12px; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.16)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.08)'">Delete App</button>
+        `, app.ID)
+	}
+
 	// Build profile token details if owner or auth is present
 	apiPublishHelp := ""
 	if user != nil {
@@ -665,6 +672,8 @@ func RenderAppDetail(app *App, user *User, token string) string {
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                         Download Source ZIP
                     </a>
+
+                    %s
                 </div>
 
                 <div class="card" style="padding: 28px;">
@@ -702,6 +711,26 @@ func RenderAppDetail(app *App, user *User, token string) string {
                     alert('API Token copied to clipboard!');
                 });
             }
+
+            function deleteApp(appId) {
+                if (confirm('Are you sure you want to permanently delete this application from the remote sharing registry? This cannot be undone.')) {
+                    fetch('/api/apps/delete/' + appId, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    }).then(res => {
+                        if (res.ok) {
+                            alert('Application deleted successfully from registry.');
+                            window.location.href = '/';
+                        } else {
+                            res.text().then(txt => alert('Failed to delete: ' + txt));
+                        }
+                    }).catch(err => {
+                        alert('Error: ' + err);
+                    });
+                }
+            }
         </script>
     `, html.EscapeString(app.Name), html.EscapeString(app.Username), viewsText, downloadsText, app.CreatedAt.Format("Jan 02, 2006"), html.EscapeString(app.Prompt),
 		func() string {
@@ -713,7 +742,7 @@ func RenderAppDetail(app *App, user *User, token string) string {
 			}
 			return ""
 		}(),
-		cliImportCommand, cliImportCommand, cliURLCommand, cliURLCommand, app.ID, app.ID, app.Views, app.Downloads, app.ID, apiPublishHelp)
+		cliImportCommand, cliImportCommand, cliURLCommand, cliURLCommand, app.ID, app.ID, deleteBtnHTML, app.Views, app.Downloads, app.ID, apiPublishHelp)
 
 	return getHeader(app.Name, user) + body + getFooter()
 }

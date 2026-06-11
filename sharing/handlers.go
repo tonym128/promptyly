@@ -75,6 +75,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/apps/search", s.apiSearchApps)
 	mux.HandleFunc("/api/apps/upload", s.apiUploadApp)
 	mux.HandleFunc("/api/apps/download/", s.apiDownloadApp)
+	mux.HandleFunc("/api/apps/delete/", s.apiDeleteApp)
 
 	// App static website serving
 	mux.HandleFunc("/apps/", s.handleServeApp)
@@ -595,6 +596,79 @@ func handleHostedAppDb(w http.ResponseWriter, r *http.Request, appID string, dat
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// apiDeleteApp deletes the app from the sharing registry.
+func (s *Server) apiDeleteApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" && r.Method != "DELETE" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := s.getAPIUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized: valid API token or login session required", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		AppID string `json:"app_id"`
+	}
+
+	// Try reading from JSON body
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	// Fallback: check query parameter
+	if req.AppID == "" {
+		req.AppID = r.URL.Query().Get("app_id")
+	}
+
+	// Fallback: check URL path
+	if req.AppID == "" {
+		req.AppID = strings.TrimPrefix(r.URL.Path, "/api/apps/delete/")
+		req.AppID = strings.Split(req.AppID, "/")[0] // Extract clean ID
+	}
+
+	if req.AppID == "" {
+		http.Error(w, "app_id is required", http.StatusBadRequest)
+		return
+	}
+
+	app, exists := s.store.GetApp(req.AppID)
+	if !exists {
+		http.Error(w, "App not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if app.UserID != user.ID {
+		http.Error(w, "Forbidden: you do not own this application", http.StatusForbidden)
+		return
+	}
+
+	// Delete ZIP file
+	if app.ZipName != "" {
+		zipPath := filepath.Join(s.dataDir, "zips", app.ZipName)
+		_ = os.Remove(zipPath)
+	}
+
+	// Delete extracted folder
+	destDir := filepath.Join(s.dataDir, "apps", app.ID)
+	_ = os.RemoveAll(destDir)
+
+	// Remove from database
+	if err := s.store.DeleteApp(app.ID); err != nil {
+		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Application deleted successfully from registry",
+	})
 }
 
 // extractZip unpacks file records to the destination path.
