@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # 1. Local developer daemon running on host network (port 6071)
+  promptyly-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: promptyly-daemon
+    network_mode: "host"
+    volumes:
+      - ${HOME}/.config/promptyly:/root/.config/promptyly
+      - ${HOME}/promptyly-apps:/root/promptyly-apps
+    environment:
+      - HOST=127.0.0.1
+    restart: unless-stopped
+    depends_on:
+      - ollama
+
+  # 2. Sharing registry server running on port 6072
+  promptyly-registry:
+    build:
+      context: .
+      dockerfile: sharing/Dockerfile
+    container_name: promptyly-share
+    ports:
+      - "6072:6072"
+    volumes:
+      - ./sharing/data:/app/data
+    environment:
+      - PORT=6072
+      - DATA_DIR=/app/data
+    restart: unless-stopped
+
+  # 3. Registry tunnel (ngrok) for publishing/sharing remotely
+  registry-tunnel:
+    image: ngrok/ngrok:latest
+    container_name: promptyly-share-tunnel
+    restart: unless-stopped
+    ports:
+      - "4040:4040"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command:
+      - "http"
+      - "promptyly-registry:6072"
+    depends_on:
+      - promptyly-registry
+
+  # 4. Ollama Service running on port 11434
+  ollama:
+    image: ollama/ollama:latest
+    container_name: promptyly-ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  # 5. Helper container to auto-pull the DeepSeek-Coder model
+  ollama-pull-model:
+    image: ollama/ollama:latest
+    container_name: promptyly-ollama-pull
+    volumes:
+      - ollama-data:/root/.ollama
+    entrypoint: /bin/sh
+    command: -c "sleep 3 && ollama pull deepseek-coder:1.3b-instruct"
+    depends_on:
+      - ollama
+
+volumes:
+  ollama-data:

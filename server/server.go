@@ -31,8 +31,8 @@ var (
 	cachedConfigMu sync.Mutex
 
 	// Callbacks to decouple server from app package (avoiding cyclic imports)
-	CreateAppCallback func(prompt string) (string, string, error)
-	EditAppCallback   func(name, prompt string) error
+	CreateAppCallback func(prompt string, onToken func(token string)) (string, string, error)
+	EditAppCallback   func(name, prompt string, onToken func(token string)) error
 	RenameAppCallback func(oldName, newName string) (string, error)
 	LinkAppCallback   func(path string) (string, error)
 	UnlinkAppCallback func(name string) error
@@ -246,7 +246,12 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             <p>Generate your first application using the form above!</p>
         </div>`
 	} else {
-		gridHTML = `<div class="grid">`
+		gridHTML = `
+        <div class="search-local-wrapper" style="margin-bottom: 24px; position: relative;">
+            <input type="text" id="local-search-input" placeholder="Search local apps by name or prompt..." class="form-control" style="width: 100%; height: 50px; padding-left: 44px; margin-bottom: 0; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 12px; font-size: 0.95rem; color: var(--text-primary); transition: all 0.2s;" oninput="filterLocalApps()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 16px; top: 16px; color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </div>
+        <div class="grid">`
 		for _, name := range appNames {
 			promptText := appPrompts[name]
 			if promptText == "" {
@@ -851,7 +856,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             <div class="brand-logo-wrapper">
                 <div class="brand-logo">P</div>
             </div>
-            <h1>Promptyly Hub</h1>
+            <h1>Promptyly Hub <span style="font-size: 0.85rem; font-weight: 600; padding: 4px 10px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 20px; color: #a5b4fc; vertical-align: middle; margin-left: 10px; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace;">v{{VERSION}}</span></h1>
             <p class="subtitle">Your locally generated, git-backed web applications</p>
         </header>
 
@@ -918,6 +923,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         <select class="form-control" id="set-provider">
                             <option value="gemini">Gemini (Google)</option>
                             <option value="claude">Claude (Anthropic)</option>
+                            <option value="ollama">Ollama</option>
+                            <option value="lmstudio">OpenAI-compatible</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -935,6 +942,26 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     <div class="form-group">
                         <label class="form-label">Claude Model</label>
                         <input type="text" class="form-control" id="set-claude-model" placeholder="claude-3-5-sonnet-20240620">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Ollama Endpoint URL</label>
+                        <input type="text" class="form-control" id="set-ollama-url" placeholder="http://localhost:11434">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Ollama Model</label>
+                        <input type="text" class="form-control" id="set-ollama-model" placeholder="llama3">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">OpenAI-compatible Endpoint URL</label>
+                        <input type="text" class="form-control" id="set-openai-url" placeholder="http://localhost:1234/v1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">OpenAI-compatible Model</label>
+                        <input type="text" class="form-control" id="set-openai-model" placeholder="meta-llama-3-8b-instruct">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">OpenAI-compatible API Key (Optional)</label>
+                        <input type="password" class="form-control" id="set-openai-key" placeholder="Enter Key if required">
                     </div>
                 </div>
 
@@ -963,6 +990,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             </div>
         </div>
     </div>
+    <footer style="text-align: center; margin-top: 48px; padding-bottom: 24px; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 24px; width: 100%%; display: flex; justify-content: space-between; align-items: center;">
+        <span>Promptyly Hub &copy; 2026</span>
+        <span style="font-family: 'JetBrains Mono', monospace;">v{{VERSION}}</span>
+    </footer>
 
     <script>
     const API_TOKEN = "%s";
@@ -1001,6 +1032,46 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    function filterLocalApps() {
+        const q = document.getElementById('local-search-input').value.toLowerCase().trim();
+        const cards = document.querySelectorAll('#panel-local .grid .card');
+        let visibleCount = 0;
+        
+        cards.forEach(card => {
+            const name = card.id.replace('card-', '');
+            const titleEl = document.getElementById('title-' + name);
+            const descEl = document.getElementById('desc-' + name);
+            
+            const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+            const desc = descEl ? descEl.textContent.toLowerCase() : '';
+            
+            if (title.includes(q) || desc.includes(q) || name.toLowerCase().includes(q)) {
+                card.style.display = 'flex';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        let emptyState = document.getElementById('local-search-empty');
+        if (visibleCount === 0 && q !== '') {
+            if (!emptyState) {
+                emptyState = document.createElement('div');
+                emptyState.id = 'local-search-empty';
+                emptyState.className = 'empty-state';
+                emptyState.style.marginTop = '24px';
+                emptyState.innerHTML = '<h3>No matching local applications</h3><p>Try searching another keyword.</p>';
+                document.querySelector('#panel-local .grid').after(emptyState);
+            } else {
+                emptyState.style.display = 'block';
+            }
+        } else {
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+        }
+    }
+
     async function loadSettings() {
         try {
             const res = await fetch('/api/config', {
@@ -1022,6 +1093,15 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             const claude = activeConfig.providers.claude || {};
             document.getElementById('set-claude-key').value = claude.api_key || '';
             document.getElementById('set-claude-model').value = claude.model || '';
+
+            const ollama = activeConfig.providers.ollama || {};
+            document.getElementById('set-ollama-url').value = ollama.url || '';
+            document.getElementById('set-ollama-model').value = ollama.model || '';
+
+            const lmstudio = activeConfig.providers.lmstudio || {};
+            document.getElementById('set-openai-url').value = lmstudio.url || '';
+            document.getElementById('set-openai-model').value = lmstudio.model || '';
+            document.getElementById('set-openai-key').value = lmstudio.api_key || '';
         } catch (err) {
             console.error('Failed to load daemon config: ', err);
         }
@@ -1044,6 +1124,17 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         activeConfig.providers.claude = {
             api_key: document.getElementById('set-claude-key').value.trim(),
             model: document.getElementById('set-claude-model').value.trim()
+        };
+
+        activeConfig.providers.ollama = {
+            url: document.getElementById('set-ollama-url').value.trim(),
+            model: document.getElementById('set-ollama-model').value.trim()
+        };
+
+        activeConfig.providers.lmstudio = {
+            url: document.getElementById('set-openai-url').value.trim(),
+            model: document.getElementById('set-openai-model').value.trim(),
+            api_key: document.getElementById('set-openai-key').value.trim()
         };
 
         try {
@@ -1076,7 +1167,11 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1;"><div class="spinner" style="margin: 0 auto 12px auto;"></div>Querying Remote Registry...</div>';
 
         try {
-            const res = await fetch(serverUrl + '/api/apps/search?q=' + encodeURIComponent(q));
+            const res = await fetch('/api/apps/search?q=' + encodeURIComponent(q), {
+                headers: {
+                    'X-Promptyly-Token': API_TOKEN
+                }
+            });
             if (!res.ok) throw new Error('Remote search failed');
             const apps = await res.json();
 
@@ -1441,6 +1536,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`, gridHTML, apiToken, string(localAppsJSON))
 
+	html = strings.ReplaceAll(html, "{{VERSION}}", config.Version)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(html))
 }
@@ -1471,8 +1568,8 @@ func appsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appDir, ok := cfg.Apps[appName]
-	if !ok {
+	appDir := cfg.ResolveAppPath(appName)
+	if appDir == "" {
 		http.Error(w, fmt.Sprintf("App '%s' not found in registry", appName), http.StatusNotFound)
 		return
 	}
@@ -1586,7 +1683,12 @@ func withAuth(next http.HandlerFunc) http.HandlerFunc {
 func StartDevServer(defaultPort int) (int, error) {
 	initToken()
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", defaultPort))
+	bindAddr := "127.0.0.1"
+	if envHost := os.Getenv("HOST"); envHost != "" {
+		bindAddr = envHost
+	}
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindAddr, defaultPort))
 	if err != nil {
 		// Port already bound, assuming server is running in another terminal
 		return defaultPort, nil
@@ -1688,18 +1790,45 @@ func apiCreateAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appName, appPath, err := CreateAppCallback(req.Prompt)
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+
+	var mu sync.Mutex
+	onToken := func(token string) {
+		mu.Lock()
+		defer mu.Unlock()
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type":  "token",
+			"token": token,
+		})
+		_, _ = w.Write(append(msg, '\n'))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	appName, appPath, err := CreateAppCallback(req.Prompt, onToken)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		mu.Lock()
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type":  "error",
+			"error": err.Error(),
+		})
+		_, _ = w.Write(append(msg, '\n'))
+		mu.Unlock()
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+	mu.Lock()
+	msg, _ := json.Marshal(map[string]interface{}{
+		"type":    "success",
 		"appName": appName,
 		"appPath": appPath,
 	})
+	_, _ = w.Write(append(msg, '\n'))
+	mu.Unlock()
 }
 
 func apiEditAppHandler(w http.ResponseWriter, r *http.Request) {
@@ -1727,18 +1856,45 @@ func apiEditAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := EditAppCallback(req.Name, req.Prompt)
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+
+	var mu sync.Mutex
+	onToken := func(token string) {
+		mu.Lock()
+		defer mu.Unlock()
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type":  "token",
+			"token": token,
+		})
+		_, _ = w.Write(append(msg, '\n'))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	err := EditAppCallback(req.Name, req.Prompt, onToken)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		mu.Lock()
+		msg, _ := json.Marshal(map[string]interface{}{
+			"type":  "error",
+			"error": err.Error(),
+		})
+		_, _ = w.Write(append(msg, '\n'))
+		mu.Unlock()
 		return
 	}
 
 	NotifyReload(req.Name)
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+	mu.Lock()
+	msg, _ := json.Marshal(map[string]interface{}{
+		"type": "success",
 	})
+	_, _ = w.Write(append(msg, '\n'))
+	mu.Unlock()
 }
 
 func apiRenameAppHandler(w http.ResponseWriter, r *http.Request) {
@@ -2076,8 +2232,8 @@ func apiPublishAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appDir, ok := cfg.Apps[req.Name]
-	if !ok {
+	appDir := cfg.ResolveAppPath(req.Name)
+	if appDir == "" {
 		http.Error(w, fmt.Sprintf("App '%s' not found locally in your registry", req.Name), http.StatusBadRequest)
 		return
 	}

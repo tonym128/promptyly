@@ -54,7 +54,7 @@ func NewGeminiClient(cfg config.ProviderConfig) *GeminiClient {
 	return &GeminiClient{Config: cfg}
 }
 
-func (c *GeminiClient) Generate(systemPrompt, userPrompt string) (*Response, error) {
+func (c *GeminiClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.APIKey == "" {
 		return nil, fmt.Errorf("Gemini API key is not set. Configure it with 'promptyly config set gemini_key <key>'")
 	}
@@ -121,5 +121,8 @@ func (c *GeminiClient) Generate(systemPrompt, userPrompt string) (*Response, err
 	}
 
 	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
+	if onToken != nil {
+		onToken(responseText)
+	}
 	return ParseResponse(responseText), nil
 }

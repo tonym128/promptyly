@@ -62,7 +62,7 @@ func OpenBrowser(url string) {
 
 
 // CreateApp generates a new application from a prompt.
-func CreateApp(cfg *config.Config, prompt string) (string, string, error) {
+func CreateApp(cfg *config.Config, prompt string, onToken func(token string)) (string, string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
 	if existingAppName, exists := cfg.Prompts[trimmedPrompt]; exists {
 		if appDir, dirExists := cfg.Apps[existingAppName]; dirExists {
@@ -138,7 +138,7 @@ Follow these guidelines:
 `
 
 	fmt.Printf("Generating application '%s' using provider '%s' (model: %s)...\n", appName, prov, provCfg.Model)
-	resp, err := client.Generate(systemPrompt, prompt)
+	resp, err := client.Generate(systemPrompt, prompt, onToken)
 	if err != nil {
 		return "", "", err
 	}
@@ -236,9 +236,9 @@ You are editing the application: **%s**.
 }
 
 // EditApp processes a modification request for an existing application.
-func EditApp(cfg *config.Config, appName string, editPrompt string) error {
-	appDir, ok := cfg.Apps[appName]
-	if !ok {
+func EditApp(cfg *config.Config, appName string, editPrompt string, onToken func(token string)) error {
+	appDir := cfg.ResolveAppPath(appName)
+	if appDir == "" {
 		// Try resolving as direct directory
 		if _, err := os.Stat(appName); err == nil {
 			appDir = appName
@@ -313,7 +313,7 @@ Rules:
 `
 
 	fmt.Printf("Applying edits using provider '%s' (model: %s)...\n", prov, provCfg.Model)
-	resp, err := client.Generate(systemPrompt, editPrompt)
+	resp, err := client.Generate(systemPrompt, editPrompt, onToken)
 	if err != nil {
 		return err
 	}
@@ -399,7 +399,10 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 
 	fmt.Println("Interactive editing mode active.")
 	fmt.Println("Describe changes you want to make (e.g., 'make the font larger', 'add a dark mode').")
-	fmt.Println("Type 'exit' to stop the dev server.")
+	fmt.Println("Available commands:")
+	fmt.Println("  .publish [desc] - Publish the app to the remote registry (optionally with description)")
+	fmt.Println("  .reload         - Manually trigger browser hot-reload")
+	fmt.Println("  .exit           - Stop the dev server and exit interactive mode (or type 'exit')")
 	fmt.Println("-----------------------------------------")
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -414,9 +417,35 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 			continue
 		}
 
-		if strings.ToLower(input) == "exit" {
+		if input == ".exit" || strings.ToLower(input) == "exit" {
 			fmt.Println("Stopping server. Goodbye!")
 			break
+		}
+
+		if input == ".reload" {
+			fmt.Println("🔄 Triggering browser hot-reload...")
+			triggerReload(appName, port)
+			fmt.Println("✅ Hot-reload triggered!")
+			fmt.Println()
+			continue
+		}
+
+		if input == ".publish" || strings.HasPrefix(input, ".publish ") {
+			var desc string
+			if input == ".publish" {
+				fmt.Print("Enter an optional description: ")
+				if !scanner.Scan() {
+					break
+				}
+				desc = strings.TrimSpace(scanner.Text())
+			} else {
+				desc = strings.TrimSpace(strings.TrimPrefix(input, ".publish "))
+			}
+			fmt.Printf("Publishing application '%s' via Promptyly server...\n", appName)
+			if err := sendServerPublishRequest(port, appName, desc); err != nil {
+				fmt.Printf("❌ Publish failed: %v\n\n", err)
+			}
+			continue
 		}
 
 		fmt.Printf("\n[AI Working...] Processing request: '%s'\n", input)
@@ -433,10 +462,71 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 	return nil
 }
 
+func sendServerPublishRequest(port int, appName, description string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	tokenPath := filepath.Join(home, ".config", "promptyly", ".token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return fmt.Errorf("API token not found, is server running? error: %v", err)
+	}
+	token := strings.TrimSpace(string(data))
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/apps/publish", port)
+	reqBody, _ := json.Marshal(map[string]string{
+		"name":        appName,
+		"description": description,
+	})
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Promptyly-Token", token)
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var respData struct {
+		Success   bool   `json:"success"`
+		AppID     string `json:"appId"`
+		LiveURL   string `json:"liveUrl"`
+		DetailURL string `json:"detailUrl"`
+	}
+	if err := json.Unmarshal(respBody, &respData); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	fmt.Printf("\n==================================================\n")
+	fmt.Printf("✅ Application successfully published to the registry!\n")
+	fmt.Printf("👉 Live URL: %s\n", respData.LiveURL)
+	fmt.Printf("👉 Detail Page: %s\n", respData.DetailURL)
+	fmt.Printf("==================================================\n\n")
+
+	return nil
+}
+
 // ExportApp creates a zip file of the application.
 func ExportApp(cfg *config.Config, appName, outputPath string) error {
-	appDir, ok := cfg.Apps[appName]
-	if !ok {
+	appDir := cfg.ResolveAppPath(appName)
+	if appDir == "" {
 		if _, err := os.Stat(appName); err == nil {
 			appDir = appName
 		} else {
@@ -673,8 +763,8 @@ func UnlinkApp(cfg *config.Config, appName string) error {
 
 // DeleteApp deletes the application directory and removes it from the registry.
 func DeleteApp(cfg *config.Config, appName string) error {
-	appPath, ok := cfg.Apps[appName]
-	if !ok {
+	appPath := cfg.ResolveAppPath(appName)
+	if appPath == "" {
 		return fmt.Errorf("app '%s' not found", appName)
 	}
 
@@ -803,11 +893,139 @@ func sendServerEditRequest(port int, appName, prompt string) error {
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("server error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
+	reader := bufio.NewReader(resp.Body)
+	totalTokens := 0
+	startTime := time.Now()
+	intervalTokens := 0
+	intervalStartTime := time.Now()
+	var history []float64
+
+	var finalResult struct {
+		Success bool
+		Error   string
+	}
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &chunk); err == nil {
+			t, ok := chunk["type"].(string)
+			if !ok {
+				continue
+			}
+
+			if t == "token" {
+				totalTokens++
+				intervalTokens++
+
+				elapsedInterval := time.Since(intervalStartTime)
+				if elapsedInterval >= 5*time.Second {
+					tps := float64(intervalTokens) / elapsedInterval.Seconds()
+					history = append(history, tps)
+					if len(history) > 12 {
+						history = history[1:]
+					}
+					intervalTokens = 0
+					intervalStartTime = time.Now()
+				}
+
+				elapsedOverall := time.Since(startTime).Seconds()
+				overallTPS := 0.0
+				if elapsedOverall > 0 {
+					overallTPS = float64(totalTokens) / elapsedOverall
+				}
+
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("\rTokens Generated: %d tokens  |  Speed: %.1f tokens/sec\n", totalTokens, overallTPS))
+				sb.WriteString(DrawTPSGraph(history))
+
+				if totalTokens > 1 {
+					fmt.Print("\033[9A")
+				}
+				fmt.Print(sb.String())
+
+			} else if t == "error" {
+				finalResult.Error, _ = chunk["error"].(string)
+			} else if t == "success" {
+				finalResult.Success = true
+			}
+		}
+	}
+
+	if finalResult.Error != "" {
+		return fmt.Errorf(finalResult.Error)
+	}
+
 	return nil
+}
+
+// DrawTPSGraph generates an ASCII/Unicode vertical bar graph representing tokens-per-second history.
+func DrawTPSGraph(history []float64) string {
+	maxVal := 0.0
+	for _, v := range history {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal < 10 {
+		maxVal = 10.0 // minimum scale
+	}
+
+	rows := 4
+	var sb strings.Builder
+	sb.WriteString("\nTP/S History (last 60s, 5s intervals):\n")
+
+	for r := rows - 1; r >= 0; r-- {
+		valAtRow := maxVal * float64(r) / float64(rows-1)
+		sb.WriteString(fmt.Sprintf("%4.1f | ", valAtRow))
+
+		for _, v := range history {
+			h := (v / maxVal) * float64(rows)
+			if h >= float64(r+1) {
+				sb.WriteString("█  ")
+			} else if h <= float64(r) {
+				sb.WriteString("   ")
+			} else {
+				fraction := h - float64(r)
+				if fraction < 0.125 {
+					sb.WriteString("   ")
+				} else if fraction < 0.25 {
+					sb.WriteString("  ")
+				} else if fraction < 0.375 {
+					sb.WriteString("▂  ")
+				} else if fraction < 0.5 {
+					sb.WriteString("▃  ")
+				} else if fraction < 0.625 {
+					sb.WriteString("▄  ")
+				} else if fraction < 0.75 {
+					sb.WriteString("▅  ")
+				} else if fraction < 0.875 {
+					sb.WriteString("▆  ")
+				} else {
+					sb.WriteString("▇  ")
+				}
+			}
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("     +------------------------------------\n")
+	sb.WriteString("       -60s                             0s\n")
+	return sb.String()
 }
 

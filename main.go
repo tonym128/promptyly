@@ -29,19 +29,19 @@ func main() {
 	}
 
 	// Register API callbacks for the background daemon
-	server.CreateAppCallback = func(prompt string) (string, string, error) {
+	server.CreateAppCallback = func(prompt string, onToken func(token string)) (string, string, error) {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return "", "", fmt.Errorf("failed to reload config: %v", err)
 		}
-		return app.CreateApp(freshCfg, prompt)
+		return app.CreateApp(freshCfg, prompt, onToken)
 	}
-	server.EditAppCallback = func(name, prompt string) error {
+	server.EditAppCallback = func(name, prompt string, onToken func(token string)) error {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return fmt.Errorf("failed to reload config: %v", err)
 		}
-		return app.EditApp(freshCfg, name, prompt)
+		return app.EditApp(freshCfg, name, prompt, onToken)
 	}
 	server.RenameAppCallback = func(oldName, newName string) (string, error) {
 		freshCfg, err := config.LoadConfig()
@@ -139,6 +139,10 @@ func main() {
 	command := strings.ToLower(os.Args[1])
 
 	switch command {
+	case "version":
+		fmt.Printf("Promptyly version %s\n", config.Version)
+		return
+
 	case "help":
 		printHelp()
 
@@ -171,24 +175,14 @@ func main() {
 		promptVal := os.Args[2]
 		fmt.Println("Generating application via Promptyly server...")
 		reqBody, _ := json.Marshal(map[string]string{"prompt": promptVal})
-		respBytes, err := sendServerRequest(port, "POST", "/api/apps/create", reqBody)
+		appName, _, err := streamCreateRequest(port, reqBody)
 		if err != nil {
 			fmt.Printf("❌ Creation failed: %v\n", err)
 			os.Exit(1)
 		}
 
-		var respData struct {
-			Success bool   `json:"success"`
-			AppName string `json:"appName"`
-			AppPath string `json:"appPath"`
-		}
-		if err := json.Unmarshal(respBytes, &respData); err != nil {
-			fmt.Printf("❌ Failed to parse response: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("✅ Generated application: %s\n", respData.AppName)
-		err = app.InteractiveSession(cfg, respData.AppName)
+		fmt.Printf("✅ Generated application: %s\n", appName)
+		err = app.InteractiveSession(cfg, appName)
 		if err != nil {
 			fmt.Printf("❌ Run session failed: %v\n", err)
 			os.Exit(1)
@@ -493,6 +487,7 @@ Usage:
   promptyly <command> [arguments]
 
 Commands:
+  version                 Show the version of Promptyly.
   create "<prompt>"       Generates a new app, starts the server and begins interactive editing.
   run <app-name>          Runs the local dev server and starts the interactive editing terminal.
   serve                   Starts the background dev server and REST API daemon.
@@ -522,7 +517,11 @@ Examples:
 
 func handleConfigShow(cfg *config.Config) {
 	fmt.Printf("Configuration Path: %s\n", filepath.Join(os.Getenv("HOME"), ".config", "promptyly", "config.json"))
-	fmt.Printf("Default LLM Provider: %s\n", cfg.DefaultProvider)
+	defaultProviderName := cfg.DefaultProvider
+	if defaultProviderName == "lmstudio" {
+		defaultProviderName = "openai-compatible"
+	}
+	fmt.Printf("Default LLM Provider: %s\n", defaultProviderName)
 	fmt.Printf("Apps Output Directory: %s\n", cfg.AppsDir)
 	fmt.Printf("Server Port: %d\n", cfg.ServerPort)
 	fmt.Println("\nProviders Configured:")
@@ -535,14 +534,23 @@ func handleConfigShow(cfg *config.Config) {
 		if v.URL != "" {
 			urlStr = fmt.Sprintf(" (URL: %s)", v.URL)
 		}
-		fmt.Printf("  - %-10s -> Model: %-30s | Status: %s%s\n", k, v.Model, status, urlStr)
+		displayName := k
+		if k == "lmstudio" {
+			displayName = "openai-compatible"
+		}
+		fmt.Printf("  - %-18s -> Model: %-30s | Status: %s%s\n", displayName, v.Model, status, urlStr)
 	}
 }
 
 func handleConfigSet(cfg *config.Config, key, val string) {
 	switch strings.ToLower(key) {
 	case "default_provider":
-		cfg.DefaultProvider = val
+		valLower := strings.ToLower(val)
+		if valLower == "openai-compatible" || valLower == "openai_compatible" || valLower == "openai" {
+			cfg.DefaultProvider = "lmstudio"
+		} else {
+			cfg.DefaultProvider = valLower
+		}
 	case "gemini_key":
 		p := cfg.Providers["gemini"]
 		p.APIKey = val
@@ -567,13 +575,17 @@ func handleConfigSet(cfg *config.Config, key, val string) {
 		p := cfg.Providers["ollama"]
 		p.Model = val
 		cfg.Providers["ollama"] = p
-	case "lmstudio_url":
+	case "lmstudio_url", "openai_url", "openai_compatible_url":
 		p := cfg.Providers["lmstudio"]
 		p.URL = val
 		cfg.Providers["lmstudio"] = p
-	case "lmstudio_model":
+	case "lmstudio_model", "openai_model", "openai_compatible_model":
 		p := cfg.Providers["lmstudio"]
 		p.Model = val
+		cfg.Providers["lmstudio"] = p
+	case "lmstudio_key", "openai_key", "openai_compatible_key":
+		p := cfg.Providers["lmstudio"]
+		p.APIKey = val
 		cfg.Providers["lmstudio"] = p
 	case "apps_dir":
 		cfg.AppsDir = val
@@ -606,7 +618,7 @@ func handleConfigSetup(cfg *config.Config) {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Println("\n--- Promptyly Setup Guide ---")
-	fmt.Println("Configure credentials for LLM providers (Gemini, Claude, Ollama, LM Studio).")
+	fmt.Println("Configure credentials for LLM providers (Gemini, Claude, Ollama, OpenAI-compatible).")
 	fmt.Println("--------------------------------------------------")
 
 	// 1. Choose Provider
@@ -614,7 +626,7 @@ func handleConfigSetup(cfg *config.Config) {
 	fmt.Println("1) Gemini (Recommended - Google)")
 	fmt.Println("2) Claude (Anthropic)")
 	fmt.Println("3) Ollama (Local LLM Server)")
-	fmt.Println("4) LM Studio (Local OpenAI-Compatible Server)")
+	fmt.Println("4) OpenAI-compatible (LM Studio, Local AI, etc.)")
 	fmt.Print("Choose option (1-4) [default: 1]: ")
 
 	provider := "gemini"
@@ -684,18 +696,25 @@ func handleConfigSetup(cfg *config.Config) {
 		}
 
 	case "lmstudio":
-		fmt.Print("Enter LM Studio Endpoint URL [default: http://localhost:1234/v1]: ")
+		fmt.Print("Enter OpenAI-compatible Endpoint URL [default: http://localhost:1234/v1]: ")
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.URL = val
 			}
 		}
-		fmt.Print("Enter LM Studio Model [default: meta-llama-3-8b-instruct]: ")
+		fmt.Print("Enter OpenAI-compatible Model [default: meta-llama-3-8b-instruct]: ")
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.Model = val
+			}
+		}
+		fmt.Print("Enter OpenAI-compatible API Key (Optional): ")
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.APIKey = val
 			}
 		}
 	}
@@ -801,23 +820,15 @@ func handleURL(cfg *config.Config, urlString string) {
 		}
 		fmt.Printf("✨ Application not found for '%s'. Creating new application via Promptyly server...\n", targetVal)
 		reqBody, _ := json.Marshal(map[string]string{"prompt": targetVal})
-		respBytes, err := sendServerRequest(port, "POST", "/api/apps/create", reqBody)
+		appName, _, err := streamCreateRequest(port, reqBody)
 		if err != nil {
 			fmt.Printf("❌ Failed to create app: %v\n", err)
-			return
-		}
-		var respData struct {
-			Success bool   `json:"success"`
-			AppName string `json:"appName"`
-		}
-		if err := json.Unmarshal(respBytes, &respData); err != nil {
-			fmt.Printf("❌ Failed to parse response: %v\n", err)
 			return
 		}
 		if freshCfg, err := config.LoadConfig(); err == nil {
 			cfg = freshCfg
 		}
-		err = app.InteractiveSession(cfg, respData.AppName)
+		err = app.InteractiveSession(cfg, appName)
 		if err != nil {
 			fmt.Printf("❌ Dev session failed: %v\n", err)
 		}
@@ -1116,5 +1127,132 @@ func selectAppInteractively(cfg *config.Config, port int) (string, error) {
 
 	selectedApp := choicesMap[choiceNum]
 	return selectedApp, nil
+}
+
+func sendServerStreamRequest(port int, method, path string, body []byte, onChunk func(map[string]interface{})) error {
+	err := ensureServerRunning(port)
+	if err != nil {
+		return fmt.Errorf("server is not running and could not be started: %v", err)
+	}
+
+	token := getClientToken()
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
+
+	var req *http.Request
+	if body != nil {
+		req, err = http.NewRequest(method, url, bytes.NewBuffer(body))
+	} else {
+		req, err = http.NewRequest(method, url, nil)
+	}
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Promptyly-Token", token)
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &chunk); err == nil {
+			onChunk(chunk)
+		}
+	}
+
+	return nil
+}
+
+func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
+	var finalResult struct {
+		Success bool
+		AppName string
+		AppPath string
+		Error   string
+	}
+
+	totalTokens := 0
+	startTime := time.Now()
+	intervalTokens := 0
+	intervalStartTime := time.Now()
+	var history []float64
+
+	err := sendServerStreamRequest(port, "POST", "/api/apps/create", reqBody, func(chunk map[string]interface{}) {
+		t, ok := chunk["type"].(string)
+		if !ok {
+			return
+		}
+
+		if t == "token" {
+			totalTokens++
+			intervalTokens++
+
+			elapsedInterval := time.Since(intervalStartTime)
+			if elapsedInterval >= 5*time.Second {
+				tps := float64(intervalTokens) / elapsedInterval.Seconds()
+				history = append(history, tps)
+				if len(history) > 12 {
+					history = history[1:]
+				}
+				intervalTokens = 0
+				intervalStartTime = time.Now()
+			}
+
+			elapsedOverall := time.Since(startTime).Seconds()
+			overallTPS := 0.0
+			if elapsedOverall > 0 {
+				overallTPS = float64(totalTokens) / elapsedOverall
+			}
+
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("\rTokens Generated: %d tokens  |  Speed: %.1f tokens/sec\n", totalTokens, overallTPS))
+			sb.WriteString(app.DrawTPSGraph(history))
+
+			if totalTokens > 1 {
+				fmt.Print("\033[9A")
+			}
+			fmt.Print(sb.String())
+
+		} else if t == "error" {
+			finalResult.Error, _ = chunk["error"].(string)
+		} else if t == "success" {
+			finalResult.Success = true
+			finalResult.AppName, _ = chunk["appName"].(string)
+			finalResult.AppPath, _ = chunk["appPath"].(string)
+		}
+	})
+
+	if err != nil {
+		return "", "", err
+	}
+
+	if finalResult.Error != "" {
+		return "", "", fmt.Errorf(finalResult.Error)
+	}
+
+	return finalResult.AppName, finalResult.AppPath, nil
 }
 

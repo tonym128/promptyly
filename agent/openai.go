@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ type openAIRequest struct {
 	Model       string          `json:"model"`
 	Messages    []openAIMessage `json:"messages"`
 	Temperature float64         `json:"temperature,omitempty"`
+	Stream      bool            `json:"stream,omitempty"`
 }
 
 type openAIResponse struct {
@@ -89,13 +91,12 @@ func resolveURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + "/v1/chat/completions"
 }
 
-func (c *OpenAIClient) Generate(systemPrompt, userPrompt string) (*Response, error) {
+func (c *OpenAIClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.URL == "" {
 		return nil, fmt.Errorf("URL endpoint is not configured for %s", c.ProviderKey)
 	}
 
 	url := resolveURL(c.Config.URL)
-
 
 	messages := []openAIMessage{}
 	if systemPrompt != "" {
@@ -107,6 +108,7 @@ func (c *OpenAIClient) Generate(systemPrompt, userPrompt string) (*Response, err
 		Model:       c.Config.Model,
 		Messages:    messages,
 		Temperature: 0.2,
+		Stream:      onToken != nil,
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)
@@ -131,18 +133,61 @@ func (c *OpenAIClient) Generate(systemPrompt, userPrompt string) (*Response, err
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var openAIErr openAIResponse
 		_ = json.Unmarshal(bodyBytes, &openAIErr)
 		if openAIErr.Error != nil {
 			return nil, fmt.Errorf("%s error (HTTP %d): %s", c.ProviderKey, resp.StatusCode, openAIErr.Error.Message)
 		}
 		return nil, fmt.Errorf("%s HTTP status %d: %s", c.ProviderKey, resp.StatusCode, string(bodyBytes))
+	}
+
+	if reqBody.Stream {
+		reader := bufio.NewReader(resp.Body)
+		var fullText strings.Builder
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+			var chunk struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			if err := json.Unmarshal([]byte(data), &chunk); err == nil {
+				if len(chunk.Choices) > 0 {
+					content := chunk.Choices[0].Delta.Content
+					if content != "" {
+						fullText.WriteString(content)
+						onToken(content)
+					}
+				}
+			}
+		}
+		return ParseResponse(fullText.String()), nil
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	var openAIResp openAIResponse

@@ -104,6 +104,14 @@ func LoadConfig() (*Config, error) {
 	}
 	if loadedConfig.AppsDir != "" {
 		cfg.AppsDir = loadedConfig.AppsDir
+		// Docker container path translation:
+		// If the loaded AppsDir does not exist, but /root/promptyly-apps exists,
+		// dynamically resolve it to the container directory.
+		if _, err := os.Stat(cfg.AppsDir); os.IsNotExist(err) {
+			if _, err := os.Stat("/root/promptyly-apps"); err == nil {
+				cfg.AppsDir = "/root/promptyly-apps"
+			}
+		}
 	}
 	if loadedConfig.Apps != nil {
 		cfg.Apps = loadedConfig.Apps
@@ -187,4 +195,31 @@ func (cfg *Config) GetActiveProvider() (string, ProviderConfig) {
 		return prov, ProviderConfig{}
 	}
 	return prov, pc
+}
+
+// ResolveAppPath returns the verified absolute directory path for a given application.
+// If the configured path does not exist, it attempts to resolve it relative to the
+// current config's AppsDir or container-specific directories.
+func (cfg *Config) ResolveAppPath(appName string) string {
+	appPath, ok := cfg.Apps[appName]
+	if !ok {
+		return ""
+	}
+	if _, err := os.Stat(appPath); err == nil {
+		return appPath
+	}
+	// Try relative to dynamically translated AppsDir
+	base := filepath.Base(appPath)
+	if cfg.AppsDir != "" {
+		resolvedPath := filepath.Join(cfg.AppsDir, base)
+		if _, err := os.Stat(resolvedPath); err == nil {
+			return resolvedPath
+		}
+	}
+	// Check under fallback container path
+	containerPath := filepath.Join("/root/promptyly-apps", base)
+	if _, err := os.Stat(containerPath); err == nil {
+		return containerPath
+	}
+	return appPath
 }

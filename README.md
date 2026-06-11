@@ -69,11 +69,24 @@ promptyly create "A sleek dark mode pomodoro timer with custom audio loops and t
 ```
 
 ### 3. Edit & Work on an App
-Resume working on an existing application in your browser:
+To resume working on an existing application in your browser and terminal:
 ```bash
 promptyly run a-sleek-dark-mode-pomodoro-timer
 ```
 Once loaded, you can type updates in your terminal like `add a dark mode toggle` or `change default time to 45 mins`, and watch the browser update in real-time.
+
+#### How App Editing Works Under the Hood
+1. **Local Server Hosting**: The app is served from the `~/promptyly-apps/<app-name>` directory at `http://localhost:6071/apps/<app-name>/`.
+2. **Git Version Control**: Each edit you make is automatically committed to a local Git repository initialized in your app's directory. This allows you to track changes, view history, or revert if needed.
+3. **Hot Reload Injection**: The server automatically injects a lightweight Server-Sent Events (SSE) listener into your app's HTML.
+4. **Interactive Promptyly Console**: When editing or running an app, you enter an interactive console (`promptyly>`).
+
+#### Shortcut Commands
+While busy prompting the app in the interactive `promptyly>` terminal, you can issue the following shortcut commands directly to take actions:
+* **`.publish [optional description]`**: Publishes/uploads the application to the configured remote sharing registry server.
+  * If a description is not supplied inline, you will be prompted for it.
+* **`.reload`**: Manually triggers a browser hot-reload for the application.
+* **`.exit`** (or **`exit`**): Stops the local dev server and safely exits the interactive session.
 
 ### 4. Register/Unregister the Custom URL Scheme
 Register the `prompt://` protocol handler in your operating system registry (Windows) or desktop database (Linux):
@@ -133,28 +146,10 @@ All database files are kept inside the project folder so they are automatically 
 Promptyly is structured as a multi-component workspace:
 
 1. **Go CLI Engine (`promptyly`)**: The core application engine (defined in [main.go](file:///home/tonym/Projects/promptyly/main.go)) that manages AI generation, local Git version control, app deep links registration, and interactive edit sessions.
-2. **Local Daemon Server**: A unified HTTP server (defined in [server/server.go](file:///home/tonym/Projects/promptyly/server/server.go)) hosting:
-   * **Promptyly Hub**: The dark-mode dashboard home page.
+2. **Local Daemon Server & Web UI**: A unified HTTP server (defined in [server/server.go](file:///home/tonym/Projects/promptyly/server/server.go)) hosting:
+   * **Promptyly Hub**: The dark-mode dashboard home page, featuring local application registry search and configuration panels.
    * **Web Apps**: Renders generated sites dynamically.
    * **Hot Reloading & JSON DB**: Embeds SSE reload triggers and serves local persistence DB queries.
-3. **Desktop Application**: An Electron-based visual wrapper located in the [desktop/](file:///home/tonym/Projects/promptyly/desktop) directory offering a dual side-by-side app preview, chat sidebar interface, and setting panels.
-
----
-
-## Desktop App Build & Run
-
-To run the visual desktop environment locally:
-
-1. Compile the main Go binary:
-   ```bash
-   go build -o promptyly main.go
-   ```
-2. Navigate to the desktop folder and launch the app:
-   ```bash
-   cd desktop
-   npm install
-   npm start
-   ```
 
 ---
 
@@ -193,13 +188,26 @@ To load it in your browser:
 
 ---
 
-## 🛠️ Desktop Distribution & Scripts
+## 🛠️ Docker & Startup Scripts
 
-To make Promptyly easy to launch and distribute on desktop machines, the following utilities have been added:
+To make Promptyly easy to launch and run, the following utilities and environments are provided:
 
 1. **One-Command Startup Scripts**:
-   - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server, and boot the Electron UI app in one go.
-2. **Unified Docker Environment**:
-   - Run `docker compose up -d` using the root **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)** to launch the developer daemon, the registry server, and an integrated ngrok tunnel concurrently.
+   - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server, and open the Hub dashboard Web UI in your default browser.
+2. **Docker Compose Stacks**:
+   - **Default Stack** (relies on local host LLM): Run `docker compose up -d` using **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)**.
+   - **Full Stack** (includes containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**.
+   
+   #### Prerequisite: Directory Permissions
+   Before starting Docker, ensure the sharing data folder is writable by the container:
+   ```bash
+   sudo chown -R $USER:$USER ./sharing/data
+   ```
+
+   #### Local LLM Loopback Access (LM Studio & Ollama)
+   Since the `promptyly-daemon` container runs in **host network mode** (`network_mode: "host"`), it shares your host network namespace. This allows it to connect directly to local LLM engines running on the host (for the default stack) or the containerized Ollama service (on port `11434` for the full stack):
+   - **OpenAI-compatible / LM Studio Endpoint**: `http://127.0.0.1:1234/v1`
+   - **Ollama Endpoint (DeepSeek Coder 1.3B)**: `http://127.0.0.1:11434`
+
 3. **Packaging Utility**:
-   - Run **[`./package.sh`](file:///home/tonym/Projects/promptyly/package.sh)** to cross-compile Go daemon binaries for Windows, macOS, and Linux, and output them to the Electron `bin/` directory for desktop compilation, while bundling the browser extension as a ready-to-release ZIP archive.
+   - Run **[`./package.sh`](file:///home/tonym/Projects/promptyly/package.sh)** to cross-compile Go daemon binaries for Windows, macOS, and Linux, while bundling the browser extension as a ready-to-release ZIP archive in `dist/`.

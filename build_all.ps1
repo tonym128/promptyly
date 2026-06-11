@@ -4,6 +4,8 @@ Write-Host "🏗️  Building Promptyly Suite Locally..." -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 1. Compile the local CLI & Daemon
+Write-Host "⚙️ 1. Incrementing version revision..." -ForegroundColor Yellow
+go run bump_version.go
 Write-Host "⚙️ 1. Compiling Promptyly CLI/Daemon binary..." -ForegroundColor Yellow
 go build -o promptyly.exe main.go sharingclient.go
 Write-Host "   ✓ Built: .\promptyly.exe" -ForegroundColor Green

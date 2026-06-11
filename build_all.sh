@@ -19,6 +19,8 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 # 1. Compile the local CLI & Daemon
+echo "⚙️  1. Incrementing version revision..."
+$GO_CMD run bump_version.go
 echo "⚙️  1. Compiling Promptyly CLI/Daemon binary..."
 $GO_CMD build -o promptyly main.go sharingclient.go
 echo "   ✓ Built: ./promptyly"

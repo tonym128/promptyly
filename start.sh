@@ -20,6 +20,8 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 # 1. Compile the Go developer daemon locally
+echo "⚙️  Incrementing version revision..."
+$GO_CMD run bump_version.go
 echo "⚙️  Building local developer daemon..."
 $GO_CMD build -o promptyly main.go sharingclient.go
 

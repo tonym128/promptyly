@@ -7,13 +7,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: promptyly-daemon
-    ports:
-      - "6071:6071"
+    network_mode: "host"
     volumes:
       # Persist configuration settings
-      - promptyly-config:/root/.config/promptyly
+      - ${HOME}/.config/promptyly:/root/.config/promptyly
       # Persist generated applications code
-      - promptyly-apps:/root/promptyly-apps
+      - ${HOME}/promptyly-apps:/root/promptyly-apps
+    environment:
+      - HOST=127.0.0.1
     restart: unless-stopped
 
   # 2. Sharing registry server running on port 6072
@@ -46,6 +47,4 @@ services:
     depends_on:
       - promptyly-registry
 
-volumes:
-  promptyly-config:
-  promptyly-apps:
+

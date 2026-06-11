@@ -4,6 +4,8 @@ Write-Host "🚀 Bootstrapping Promptyly Desktop & Daemon..." -ForegroundColor C
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 1. Compile the Go developer daemon locally
+Write-Host "⚙️ Incrementing version revision..." -ForegroundColor Yellow
+go run bump_version.go
 Write-Host "⚙️ Building local developer daemon..." -ForegroundColor Yellow
 go build -o promptyly.exe main.go sharingclient.go
 

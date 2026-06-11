@@ -44,7 +44,7 @@ func NewClaudeClient(cfg config.ProviderConfig) *ClaudeClient {
 	return &ClaudeClient{Config: cfg}
 }
 
-func (c *ClaudeClient) Generate(systemPrompt, userPrompt string) (*Response, error) {
+func (c *ClaudeClient) Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error) {
 	if c.Config.APIKey == "" {
 		return nil, fmt.Errorf("Claude API key is not set. Configure it with 'promptyly config set claude_key <key>'")
 	}
@@ -105,5 +105,8 @@ func (c *ClaudeClient) Generate(systemPrompt, userPrompt string) (*Response, err
 	}
 
 	responseText := claudeResp.Content[0].Text
+	if onToken != nil {
+		onToken(responseText)
+	}
 	return ParseResponse(responseText), nil
 }

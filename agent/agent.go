@@ -19,7 +19,7 @@ type Response struct {
 
 // Agent defines the interface for communicating with LLM providers.
 type Agent interface {
-	Generate(systemPrompt, userPrompt string) (*Response, error)
+	Generate(systemPrompt, userPrompt string, onToken func(token string)) (*Response, error)
 }
 
 var (
