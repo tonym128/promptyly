@@ -103,9 +103,48 @@ func NotifyReload(appName string) {
 	}
 }
 
-func injectLiveReload(html string, ssePath string) string {
+func injectLiveReload(html string, ssePath string, appName string) string {
 	script := fmt.Sprintf(`
-<!-- Injected by Promptyly Live Reload -->
+<!-- Injected by Promptyly Live Reload & Prompt Console -->
+<div id="promptyly-console-widget" style="position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <button id="promptyly-btn" style="width: 56px; height: 56px; border-radius: 50%%; background: linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%); border: none; box-shadow: 0 8px 32px rgba(99, 102, 241, 0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); outline: none;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sparkle"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.32 11.32l.707-.707M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/></svg>
+  </button>
+
+  <div id="promptyly-card" style="display: none; position: absolute; bottom: 70px; right: 0; width: 360px; background: rgba(13, 20, 35, 0.95); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); overflow: hidden; transition: all 0.3s ease; opacity: 0; transform: translateY(20px) scale(0.95); transform-origin: bottom right;">
+    <div style="padding: 16px; background: rgba(255, 255, 255, 0.02); border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="width: 8px; height: 8px; border-radius: 50%%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
+        <strong style="color: #f8fafc; font-size: 0.95rem; font-weight: 600;">Promptyly Editor</strong>
+      </div>
+      <span style="font-size: 0.75rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); padding: 2px 8px; border-radius: 12px; font-weight: 500;">Local Daemon</span>
+    </div>
+
+    <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+      <div id="promptyly-status-box" style="display: none; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 12px; font-size: 0.85rem; line-height: 1.4;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <div class="promptyly-spinner" style="width: 14px; height: 14px; border: 2px solid rgba(165, 180, 252, 0.2); border-top-color: #a5b4fc; border-radius: 50%%; animation: promptyly-spin 0.8s linear infinite;"></div>
+          <strong id="promptyly-status-title" style="color: #a5b4fc;">AI is working...</strong>
+        </div>
+        <p id="promptyly-status-desc" style="color: #94a3b8; font-size: 0.8rem;">Starting generation...</p>
+      </div>
+
+      <p id="promptyly-prompt-label" style="color: #94a3b8; font-size: 0.85rem; margin: 0; line-height: 1.4;">Describe modifications you want to make to this app:</p>
+      <textarea id="promptyly-input" placeholder="e.g., Make the background dark, add a reset button..." style="width: 100%%; height: 100px; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #f8fafc; font-family: inherit; font-size: 0.9rem; resize: none; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='rgba(99, 102, 241, 0.5)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.1)'"></textarea>
+      
+      <button id="promptyly-submit" style="width: 100%%; padding: 10px; border-radius: 8px; background: linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%); border: none; color: white; font-weight: 600; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); outline: none;">
+        Apply Changes
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes promptyly-spin {
+  to { transform: rotate(360deg); }
+}
+</style>
+
 <script>
 (function() {
   const es = new EventSource('%s');
@@ -115,9 +154,133 @@ func injectLiveReload(html string, ssePath string) string {
       window.location.reload();
     }
   };
+
+  const appName = '%s';
+  const apiToken = '%s';
+
+  const btn = document.getElementById('promptyly-btn');
+  const card = document.getElementById('promptyly-card');
+  const textarea = document.getElementById('promptyly-input');
+  const submitBtn = document.getElementById('promptyly-submit');
+  const statusBox = document.getElementById('promptyly-status-box');
+  const statusTitle = document.getElementById('promptyly-status-title');
+  const statusDesc = document.getElementById('promptyly-status-desc');
+
+  let isOpen = false;
+
+  btn.addEventListener('click', () => {
+    isOpen = !isOpen;
+    if (isOpen) {
+      card.style.display = 'block';
+      setTimeout(() => {
+        card.style.opacity = '1';
+        card.style.transform = 'translateY(0) scale(1)';
+      }, 10);
+      btn.style.transform = 'rotate(135deg)';
+      btn.style.background = 'linear-gradient(135deg, #ef4444 0%%, #dc2626 100%%)';
+      btn.style.boxShadow = '0 8px 32px rgba(239, 68, 68, 0.4)';
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+    } else {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(20px) scale(0.95)';
+      setTimeout(() => {
+        card.style.display = 'none';
+      }, 300);
+      btn.style.transform = 'rotate(0)';
+      btn.style.background = 'linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%)';
+      btn.style.boxShadow = '0 8px 32px rgba(99, 102, 241, 0.4)';
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="sparkle"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.32 11.32l.707-.707M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/></svg>';
+    }
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const prompt = textarea.value.trim();
+    if (!prompt) return;
+
+    textarea.disabled = true;
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '0.5';
+    submitBtn.style.cursor = 'not-allowed';
+    statusBox.style.display = 'block';
+    statusBox.style.background = 'rgba(99, 102, 241, 0.08)';
+    statusBox.style.borderColor = 'rgba(99, 102, 241, 0.2)';
+    statusTitle.style.color = '#a5b4fc';
+    statusTitle.textContent = 'AI is working...';
+    statusDesc.textContent = 'Contacting server...';
+
+    let totalTokens = 0;
+
+    try {
+      const response = await fetch('/api/apps/edit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Promptyly-Token': apiToken
+        },
+        body: JSON.stringify({ name: appName, prompt: prompt })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Server returned status ' + response.status);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          try {
+            const chunk = JSON.parse(trimmed);
+            if (chunk.type === 'token') {
+              totalTokens++;
+              statusDesc.textContent = 'Generating tokens... (Count: ' + totalTokens + ')';
+            } else if (chunk.type === 'error') {
+              throw new Error(chunk.error);
+            } else if (chunk.type === 'success') {
+              statusBox.style.background = 'rgba(16, 185, 129, 0.08)';
+              statusBox.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+              statusTitle.style.color = '#10b981';
+              statusTitle.textContent = 'Changes applied!';
+              statusDesc.textContent = 'Reloading application...';
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+              return;
+            }
+          } catch (e) {
+            // Ignore JSON parse errors on partial streams
+          }
+        }
+      }
+    } catch (err) {
+      statusBox.style.background = 'rgba(239, 68, 68, 0.08)';
+      statusBox.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+      statusTitle.style.color = '#ef4444';
+      statusTitle.textContent = 'Failed to apply changes';
+      statusDesc.textContent = err.message;
+      
+      textarea.disabled = false;
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+      submitBtn.style.cursor = 'pointer';
+    }
+  });
 })();
 </script>
-`, ssePath)
+`, ssePath, appName, apiToken)
+
 	lower := strings.ToLower(html)
 	idx := strings.LastIndex(lower, "</body>")
 	if idx == -1 {
@@ -1617,7 +1780,7 @@ func appsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 
 		ssePath := fmt.Sprintf("/apps/%s/_promptyly/events", appName)
-		_, _ = w.Write([]byte(injectLiveReload(string(data), ssePath)))
+		_, _ = w.Write([]byte(injectLiveReload(string(data), ssePath, appName)))
 		return
 	}
 
@@ -1821,6 +1984,9 @@ func apiCreateAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate and reload server's configuration cache
+	_, _ = reloadCachedConfig()
+
 	mu.Lock()
 	msg, _ := json.Marshal(map[string]interface{}{
 		"type":    "success",
@@ -1928,6 +2094,9 @@ func apiRenameAppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate and reload server's configuration cache
+	_, _ = reloadCachedConfig()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -1964,6 +2133,9 @@ func apiLinkAppHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Invalidate and reload server's configuration cache
+	_, _ = reloadCachedConfig()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2002,6 +2174,9 @@ func apiDeleteAppHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Invalidate and reload server's configuration cache
+	_, _ = reloadCachedConfig()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2116,6 +2291,9 @@ func apiUpdateMetadataHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Invalidate and reload server's configuration cache
+	_, _ = reloadCachedConfig()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

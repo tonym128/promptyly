@@ -186,6 +186,9 @@ func main() {
 		}
 
 		fmt.Printf("✅ Generated application: %s\n", appName)
+		if freshCfg, err := config.LoadConfig(); err == nil {
+			cfg = freshCfg
+		}
 		err = app.InteractiveSession(cfg, appName)
 		if err != nil {
 			fmt.Printf("❌ Run session failed: %v\n", err)
