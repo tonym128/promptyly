@@ -13,20 +13,8 @@ Write-Host "⚙️ 2. Compiling Sharing Registry Server binary..." -ForegroundCo
 go build -o sharing\sharing-server.exe .\sharing
 Write-Host "   ✓ Built: .\sharing\sharing-server.exe" -ForegroundColor Green
 
-# 3. Setup Desktop App dependencies
-Write-Host "⚙️ 3. Setting up Desktop Electron App..." -ForegroundColor Yellow
-Set-Location .\desktop
-if (Get-Command npm -ErrorAction SilentlyContinue) {
-    npm install
-    Write-Host "   ✓ Desktop dependencies installed successfully." -ForegroundColor Green
-} else {
-    Write-Host "   ⚠️ 'npm' not found. Skipping node module installation." -ForegroundColor DarkYellow
-    Write-Host "      (Please install Node.js/npm manually to run the Electron app)" -ForegroundColor DarkYellow
-}
-Set-Location ..
-
-# 4. Package Browser Extension
-Write-Host "⚙️ 4. Packaging Browser Extension..." -ForegroundColor Yellow
+# 3. Package Browser Extension
+Write-Host "⚙️ 3. Packaging Browser Extension..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Path "dist" -Force | Out-Null
 if (Get-Command tar -ErrorAction SilentlyContinue) {
     # Compress using tar since tar is built-in to modern Windows 10/11
@@ -44,7 +32,6 @@ Write-Host "🎉 Local Build Success Summary:" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "  [✓] Go Daemon:           .\promptyly.exe" -ForegroundColor Green
 Write-Host "  [✓] Go Sharing Registry: .\sharing\sharing-server.exe" -ForegroundColor Green
-Write-Host "  [✓] Desktop App:         .\desktop\ (node_modules ready)" -ForegroundColor Green
 if (Test-Path "dist\promptyly-extension.zip") {
     Write-Host "  [✓] Browser Extension:   .\dist\promptyly-extension.zip" -ForegroundColor Green
 }

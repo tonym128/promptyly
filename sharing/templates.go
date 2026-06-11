@@ -818,7 +818,6 @@ func RenderProfile(user *User) string {
 		maskedToken,
 		token,
 		token,
-		token,
 		maskedToken,
 	)
 

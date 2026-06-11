@@ -28,20 +28,8 @@ echo "⚙️  2. Compiling Sharing Registry Server binary..."
 $GO_CMD build -o sharing/sharing-server ./sharing
 echo "   ✓ Built: ./sharing/sharing-server"
 
-# 3. Setup Desktop App dependencies
-echo "⚙️  3. Setting up Desktop Electron App..."
-cd desktop
-if command -v npm >/dev/null 2>&1; then
-  npm install
-  echo "   ✓ Desktop dependencies installed successfully."
-else
-  echo "   ⚠️  'npm' not found. Skipping node module installation."
-  echo "      (Please install Node.js/npm manually to run the Electron app)"
-fi
-cd ..
-
-# 4. Package Browser Extension
-echo "⚙️  4. Packaging Browser Extension..."
+# 3. Package Browser Extension
+echo "⚙️  3. Packaging Browser Extension..."
 mkdir -p dist
 if command -v zip >/dev/null 2>&1; then
   rm -f dist/promptyly-extension.zip
@@ -56,7 +44,6 @@ echo "🎉 Local Build Success Summary:"
 echo "=================================================="
 echo "  [✓] Go Daemon:           ./promptyly"
 echo "  [✓] Go Sharing Registry: ./sharing/sharing-server"
-echo "  [✓] Desktop App:         ./desktop/ (node_modules ready)"
 if [ -f "dist/promptyly-extension.zip" ]; then
 echo "  [✓] Browser Extension:   ./dist/promptyly-extension.zip"
 fi

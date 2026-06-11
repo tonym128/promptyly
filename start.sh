@@ -29,22 +29,19 @@ echo "🔌 Starting local daemon on port 6071..."
 DAEMON_PID=$!
 echo "✓ Daemon running in background (PID: $DAEMON_PID)"
 
-# 3. Start Electron desktop application
-echo "💻 Launching Electron front-end app..."
-cd desktop
-if [ ! -d "node_modules" ]; then
-    echo "📦 node_modules not found, running npm install..."
-    npm install
+# 3. Open Web UI in browser
+echo "💻 Opening Web UI in default browser..."
+if command -v xdg-open >/dev/null 2>&1; then
+  xdg-open http://127.0.0.1:6071/ >/dev/null 2>&1 &
+elif command -v open >/dev/null 2>&1; then
+  open http://127.0.0.1:6071/ >/dev/null 2>&1 &
 fi
-npm start &
-ELECTRON_PID=$!
 
 # Cleanup trap to kill child processes on termination
 cleanup() {
   echo ""
   echo "🧹 Shutting down all background Promptyly services..."
   kill $DAEMON_PID 2>/dev/null || true
-  kill $ELECTRON_PID 2>/dev/null || true
   echo "✓ Cleanup complete. Goodbye!"
   exit 0
 }

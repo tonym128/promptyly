@@ -236,6 +236,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		appNames = append(appNames, name)
 	}
 	sort.Strings(appNames)
+	localAppsJSON, _ := json.Marshal(appNames)
 
 	gridHTML := ""
 	if len(appNames) == 0 {
@@ -284,6 +285,14 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     </div>`, createLink, shortCreateLink, createLink)
 			}
 
+			publishBtnPart := ""
+			if cfg.SharingToken != "" {
+				publishBtnPart = fmt.Sprintf(`
+                    <button class="tool-btn" onclick="publishApp('%s')" title="Publish App to Registry">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    </button>`, name)
+			}
+
 			gridHTML += fmt.Sprintf(`
             <div class="card" id="card-%s">
                 <div class="card-header">
@@ -299,9 +308,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     <button class="tool-btn" onclick="triggerInlineRename('%s')" title="Rename App">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"></path></svg>
                     </button>
-                    <button class="tool-btn" onclick="publishApp('%s')" title="Publish App to Registry">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    </button>
+                    %s
                     <button class="tool-btn delete" onclick="triggerInlineDelete('%s')" title="Delete App">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
@@ -330,7 +337,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                 <div class="card-actions">
                     <a href="/apps/%s/" target="_blank" class="card-btn">Open Application</a>
                 </div>
-            </div>`, name, name, displayName, name, displayPrompt, name, name, name, name, name, name, name, name, name, runLink, runLink, createLinkPart, name)
+            </div>`, name, name, displayName, name, displayPrompt, name, name, publishBtnPart, name, name, name, name, name, name, runLink, runLink, createLinkPart, name)
 		}
 		gridHTML += `</div>`
 	}
@@ -959,7 +966,28 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
     <script>
     const API_TOKEN = "%s";
+    const LOCAL_APPS = %s;
     let activeConfig = null;
+
+    function slugify(s) {
+        s = s.toLowerCase();
+        let res = '';
+        for (let i = 0; i < s.length; i++) {
+            const char = s[i];
+            if ((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
+                res += char;
+            } else if (char === ' ' || char === '-' || char === '_') {
+                if (res.length > 0 && res[res.length - 1] !== '-') {
+                    res += '-';
+                }
+            }
+        }
+        res = res.replace(/-+$/, '');
+        if (res.length > 30) {
+            res = res.substring(0, 30).replace(/-+$/, '');
+        }
+        return res || 'app';
+    }
 
     function switchTab(tabId) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1029,7 +1057,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             });
             if (res.ok) {
                 alert('Configuration settings updated successfully!');
-                switchTab('local');
+                location.reload();
             } else {
                 alert('Failed to save settings: ' + await res.text());
             }
@@ -1061,8 +1089,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             apps.forEach(app => {
                 const viewsText = app.views === 1 ? '1 view' : app.views + ' views';
                 const downloadsText = app.downloads === 1 ? '1 download' : app.downloads + ' downloads';
+                const slugName = slugify(app.name);
+                const isLocal = LOCAL_APPS.includes(app.name) || LOCAL_APPS.includes(slugName);
 
-                html += '<div class="card">' +
+                html += '<div class="card" id="remote-card-' + app.id + '" data-app-name="' + escapeHTML(app.name) + '">' +
 '                    <div class="card-header">' +
 '                        <h3 class="card-title">' + escapeHTML(app.name) + '</h3>' +
 '                        <span class="card-badge">by ' + escapeHTML(app.username) + '</span>' +
@@ -1080,13 +1110,94 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 '                    ' +
 '                    <div class="card-actions">' +
 '                        <a href="' + serverUrl + '/apps/' + app.id + '/" target="_blank" class="card-btn" style="background: rgba(255,255,255,0.05); color: var(--text-primary); border: 1px solid var(--border-color); flex-grow: 0; padding: 10px 14px;">Live App</a>' +
-'                        <button onclick="installRemoteApp(\'' + app.id + '\', this)" class="card-btn">Install Locally</button>' +
+'                        <button onclick="toggleRemoteInlineEdit(\'' + app.id + '\')" class="card-btn" style="background: rgba(99,102,241,0.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); flex-grow: 0; padding: 10px 14px;" title="Edit App">Edit</button>' +
+'                        <button onclick="installRemoteApp(\'' + app.id + '\', this)" class="card-btn">' + (isLocal ? 'Re-install' : 'Install Locally') + '</button>' +
+'                    </div>' +
+'                    ' +
+'                    <div class="inline-edit-panel" id="remote-edit-panel-' + app.id + '" style="display: none; flex-direction: column; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">' +
+'                        <textarea class="edit-textarea" id="remote-edit-input-' + app.id + '" placeholder="Describe edits... (e.g., Change accent colors, add feature x)"></textarea>' +
+'                        <button class="card-btn" style="margin-top: 8px; width: 100%;" onclick="submitRemoteInlineEdit(\'' + app.id + '\')" id="remote-edit-submit-' + app.id + '">Update Application</button>' +
+'                        <div class="edit-loading" id="remote-edit-loading-' + app.id + '" style="display: none;">' +
+'                            <div class="spinner"></div> <span id="remote-edit-loading-text-' + app.id + '">Updating application...</span>' +
+'                        </div>' +
 '                    </div>' +
 '                </div>';
             });
             grid.innerHTML = html;
         } catch (err) {
             grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1; border-color: var(--error-color); color: var(--error-color);"><h3>Registry Connection Failed</h3><p>Ensure the sharing server at <code>' + serverUrl + '</code> is running and configured correctly in settings.</p></div>';
+        }
+    }
+
+    function toggleRemoteInlineEdit(id) {
+        const panel = document.getElementById('remote-edit-panel-' + id);
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+        }
+    }
+
+    async function submitRemoteInlineEdit(id) {
+        const input = document.getElementById('remote-edit-input-' + id);
+        const button = document.getElementById('remote-edit-submit-' + id);
+        const loading = document.getElementById('remote-edit-loading-' + id);
+        const loadingText = document.getElementById('remote-edit-loading-text-' + id);
+        const card = document.getElementById('remote-card-' + id);
+
+        if (!input || !input.value.trim() || !card) return;
+
+        const appName = card.getAttribute('data-app-name');
+        const promptVal = input.value.trim();
+        input.disabled = true;
+        button.disabled = true;
+        loading.style.display = 'flex';
+
+        const slugName = slugify(appName);
+        const isLocal = LOCAL_APPS.includes(appName) || LOCAL_APPS.includes(slugName);
+
+        try {
+            let localName = appName;
+            if (!isLocal) {
+                loadingText.textContent = 'Downloading base application...';
+                const dlRes = await fetch('/api/apps/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Promptyly-Token': API_TOKEN
+                    },
+                    body: JSON.stringify({ appId: id })
+                });
+                if (!dlRes.ok) {
+                    throw new Error('Download failed: ' + await dlRes.text());
+                }
+                const dlData = await dlRes.json();
+                localName = dlData.appName;
+            }
+
+            loadingText.textContent = 'Updating application...';
+            const editRes = await fetch('/api/apps/edit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Promptyly-Token': API_TOKEN
+                },
+                body: JSON.stringify({ name: localName, prompt: promptVal })
+            });
+
+            if (editRes.ok) {
+                alert('Application updated successfully!');
+                window.location.reload();
+            } else {
+                const txt = await editRes.text();
+                alert('Failed to update: ' + txt);
+                input.disabled = false;
+                button.disabled = false;
+                loading.style.display = 'none';
+            }
+        } catch (err) {
+            alert('Error updating: ' + err.message);
+            input.disabled = false;
+            button.disabled = false;
+            loading.style.display = 'none';
         }
     }
 
@@ -1236,6 +1347,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
         const card = document.getElementById('card-' + name);
         const btn = card.querySelector('button[title="Publish App to Registry"]');
+        if (!btn) {
+            alert('Publishing is not configured. Please configure your Registry API Token in Settings.');
+            return;
+        }
         const originalHTML = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<div class="spinner" style="width: 14px; height: 14px; margin: 0 auto;"></div>';
@@ -1324,7 +1439,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
     });
     </script>
 </body>
-</html>`, gridHTML, apiToken)
+</html>`, gridHTML, apiToken, string(localAppsJSON))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(html))
@@ -2069,6 +2184,89 @@ func apiPublishAppHandler(w http.ResponseWriter, r *http.Request) {
 		"liveUrl":   cleanURL,
 		"detailUrl": detailURL,
 	})
+}
+
+func apiImportAppHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ImportAppCallback == nil {
+		http.Error(w, "Import app callback not configured", http.StatusInternalServerError)
+		return
+	}
+	var req struct {
+		ZipPath string `json:"zipPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	appName, err := ImportAppCallback(req.ZipPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"appName": appName,
+	})
+}
+
+func apiSearchAppsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query().Get("q")
+	cfg, err := getCachedConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	serverURL := cfg.SharingServerURL
+	if serverURL == "" {
+		serverURL = "http://localhost:6072"
+	}
+	u := fmt.Sprintf("%s/api/apps/search?q=%s", strings.TrimSuffix(serverURL, "/"), url.QueryEscape(q))
+	resp, err := http.Get(u)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func apiProtocolRegisterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	err := urlscheme.Register()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func apiProtocolUnregisterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	err := urlscheme.Unregister()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 

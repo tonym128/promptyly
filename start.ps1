@@ -12,14 +12,9 @@ Write-Host "🔌 Starting local daemon on port 6071..." -ForegroundColor Yellow
 $DaemonProcess = Start-Process -FilePath ".\promptyly.exe" -ArgumentList "serve" -NoNewWindow -PassThru
 Write-Host "✓ Daemon running in background (PID: $($DaemonProcess.Id))" -ForegroundColor Green
 
-# 3. Start Electron desktop application
-Write-Host "💻 Launching Electron front-end app..." -ForegroundColor Yellow
-Set-Location .\desktop
-if (-not (Test-Path "node_modules")) {
-    Write-Host "📦 node_modules not found, running npm install..." -ForegroundColor DarkYellow
-    npm install
-}
-$ElectronProcess = Start-Process -FilePath "npm" -ArgumentList "start" -NoNewWindow -PassThru
+# 3. Open Web UI in browser
+Write-Host "💻 Opening Web UI in default browser..." -ForegroundColor Yellow
+Start-Process "http://127.0.0.1:6071/"
 
 # Keep the script active and handle cleanup on exit
 try {
@@ -34,10 +29,6 @@ try {
     # Terminate the Go daemon
     if ($DaemonProcess) {
         Stop-Process -Id $DaemonProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    # Terminate Electron
-    if ($ElectronProcess) {
-        Stop-Process -Id $ElectronProcess.Id -Force -ErrorAction SilentlyContinue
     }
     
     Write-Host "✓ Cleanup complete. Goodbye!" -ForegroundColor Green

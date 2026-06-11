@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -46,7 +47,7 @@ func Slugify(s string) string {
 	return res
 }
 
-func openBrowser(url string) {
+func OpenBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -58,6 +59,7 @@ func openBrowser(url string) {
 	}
 	_ = cmd.Start()
 }
+
 
 // CreateApp generates a new application from a prompt.
 func CreateApp(cfg *config.Config, prompt string) (string, string, error) {
@@ -393,7 +395,7 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 	fmt.Printf("📁 Path: %s\n", appDir)
 	fmt.Printf("=========================================\n\n")
 
-	openBrowser(devURL)
+	OpenBrowser(devURL)
 
 	fmt.Println("Interactive editing mode active.")
 	fmt.Println("Describe changes you want to make (e.g., 'make the font larger', 'add a dark mode').")
@@ -418,10 +420,7 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 		}
 
 		fmt.Printf("\n[AI Working...] Processing request: '%s'\n", input)
-		if freshCfg, err := config.LoadConfig(); err == nil {
-			cfg = freshCfg
-		}
-		if err := EditApp(cfg, appName, input); err != nil {
+		if err := sendServerEditRequest(port, appName, input); err != nil {
 			fmt.Printf("❌ Error: %v\n\n", err)
 		} else {
 			fmt.Println("✅ Changes applied and committed to git!")
@@ -769,5 +768,46 @@ func checkAndDownloadRemote(cfg *config.Config, appName string) (string, error) 
 	}
 
 	return importedName, nil
+}
+
+func sendServerEditRequest(port int, appName, prompt string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	tokenPath := filepath.Join(home, ".config", "promptyly", ".token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return fmt.Errorf("API token not found, is server running? error: %v", err)
+	}
+	token := strings.TrimSpace(string(data))
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/apps/edit", port)
+	reqBody, _ := json.Marshal(map[string]string{
+		"name":   appName,
+		"prompt": prompt,
+	})
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Promptyly-Token", token)
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }
 

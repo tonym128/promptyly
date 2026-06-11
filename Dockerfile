@@ -11,6 +11,9 @@ COPY config/ ./config/
 COPY app/ ./app/
 COPY server/ ./server/
 COPY git/ ./git/
+COPY agent/ ./agent/
+COPY history/ ./history/
+COPY urlscheme/ ./urlscheme/
 
 # Compile the local developer daemon
 RUN CGO_ENABLED=0 GOOS=linux go build -o promptyly main.go sharingclient.go

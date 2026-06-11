@@ -70,6 +70,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// REST API routes
 	mux.HandleFunc("/api/auth/register", s.apiRegister)
 	mux.HandleFunc("/api/auth/login", s.apiLogin)
+	mux.HandleFunc("/api/auth/me", s.apiMe)
 	mux.HandleFunc("/api/apps/list", s.apiListApps)
 	mux.HandleFunc("/api/apps/search", s.apiSearchApps)
 	mux.HandleFunc("/api/apps/upload", s.apiUploadApp)
@@ -374,6 +375,24 @@ func (s *Server) apiSearchApps(w http.ResponseWriter, r *http.Request) {
 	apps := s.store.SearchApps(query)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(apps)
+}
+
+// apiMe returns the currently authenticated user's profile info.
+func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := s.getAPIUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"username": user.Username,
+	})
 }
 
 // apiUploadApp processes machine integrations and client uploads.

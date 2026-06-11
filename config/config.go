@@ -126,8 +126,41 @@ func LoadConfig() (*Config, error) {
 	for k, v := range loadedConfig.Providers {
 		cfg.Providers[k] = v
 	}
+	// On startup/load, scan AppsDir for any unregistered/missing app folders and auto-register them
+	if syncMissingApps(cfg) {
+		_ = SaveConfig(cfg)
+	}
 
 	return cfg, nil
+}
+
+func syncMissingApps(cfg *Config) bool {
+	if cfg.AppsDir == "" {
+		return false
+	}
+
+	entries, err := os.ReadDir(cfg.AppsDir)
+	if err != nil {
+		return false // AppsDir might not exist yet, which is fine
+	}
+
+	modified := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if len(name) > 0 && name[0] == '.' {
+			continue
+		}
+
+		if _, exists := cfg.Apps[name]; !exists {
+			cfg.Apps[name] = filepath.Join(cfg.AppsDir, name)
+			modified = true
+		}
+	}
+
+	return modified
 }
 
 func SaveConfig(cfg *Config) error {
