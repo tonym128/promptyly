@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"promptyly/config"
 	"strings"
 	"time"
 )
@@ -34,6 +35,9 @@ func (s *Server) getLoggedInUser(r *http.Request) *User {
 	if !exists {
 		return nil
 	}
+	if !user.IsApproved && !user.IsAdmin {
+		return nil
+	}
 	return user
 }
 
@@ -43,42 +47,102 @@ func (s *Server) getAPIUser(r *http.Request) *User {
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if user, exists := s.store.GetUserByToken(token); exists {
-			return user
+			if user.IsApproved || user.IsAdmin {
+				return user
+			}
 		}
 	}
 
 	token := r.Header.Get("X-Promptyly-Token")
 	if token != "" {
 		if user, exists := s.store.GetUserByToken(token); exists {
-			return user
+			if user.IsApproved || user.IsAdmin {
+				return user
+			}
 		}
 	}
 
 	return s.getLoggedInUser(r)
 }
 
+func (s *Server) requireLoginMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/login" || path == "/register" || path == "/logout" ||
+			path == "/install.sh" || path == "/install.ps1" ||
+			path == "/api/version/check" ||
+			strings.HasPrefix(path, "/binaries/") {
+			next(w, r)
+			return
+		}
+
+		requireLogin := os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
+		if requireLogin {
+			isAPI := strings.HasPrefix(path, "/api/")
+			var user *User
+			if isAPI {
+				user = s.getAPIUser(r)
+			} else {
+				user = s.getLoggedInUser(r)
+			}
+
+			if user == nil {
+				if isAPI {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"success": false,
+						"error":   "Authentication required",
+					})
+				} else {
+					http.Redirect(w, r, "/login", http.StatusSeeOther)
+				}
+				return
+			}
+		}
+
+		next(w, r)
+	}
+}
+
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
+	wrap := s.requireLoginMiddleware
+
 	// Web UI routes
-	mux.HandleFunc("/", s.handleHome)
-	mux.HandleFunc("/login", s.handleLogin)
-	mux.HandleFunc("/register", s.handleRegister)
-	mux.HandleFunc("/logout", s.handleLogout)
-	mux.HandleFunc("/upload", s.handleUpload)
-	mux.HandleFunc("/profile", s.handleProfile)
-	mux.HandleFunc("/app/", s.handleAppDetail)
+	mux.HandleFunc("/", wrap(s.handleHome))
+	mux.HandleFunc("/login", wrap(s.handleLogin))
+	mux.HandleFunc("/register", wrap(s.handleRegister))
+	mux.HandleFunc("/logout", wrap(s.handleLogout))
+	mux.HandleFunc("/upload", wrap(s.handleUpload))
+	mux.HandleFunc("/profile", wrap(s.handleProfile))
+	mux.HandleFunc("/app/", wrap(s.handleAppDetail))
+	mux.HandleFunc("/admin", wrap(s.handleAdminPanel))
 
 	// REST API routes
-	mux.HandleFunc("/api/auth/register", s.apiRegister)
-	mux.HandleFunc("/api/auth/login", s.apiLogin)
-	mux.HandleFunc("/api/auth/me", s.apiMe)
-	mux.HandleFunc("/api/apps/list", s.apiListApps)
-	mux.HandleFunc("/api/apps/search", s.apiSearchApps)
-	mux.HandleFunc("/api/apps/upload", s.apiUploadApp)
-	mux.HandleFunc("/api/apps/download/", s.apiDownloadApp)
-	mux.HandleFunc("/api/apps/delete/", s.apiDeleteApp)
+	mux.HandleFunc("/api/auth/register", wrap(s.apiRegister))
+	mux.HandleFunc("/api/auth/login", wrap(s.apiLogin))
+	mux.HandleFunc("/api/auth/me", wrap(s.apiMe))
+	mux.HandleFunc("/api/apps/list", wrap(s.apiListApps))
+	mux.HandleFunc("/api/apps/search", wrap(s.apiSearchApps))
+	mux.HandleFunc("/api/apps/upload", wrap(s.apiUploadApp))
+	mux.HandleFunc("/api/apps/download/", wrap(s.apiDownloadApp))
+	mux.HandleFunc("/api/apps/delete/", wrap(s.apiDeleteApp))
+	mux.HandleFunc("/api/version/check", wrap(s.apiVersionCheck))
+
+	// Admin API routes
+	mux.HandleFunc("/api/admin/approve", wrap(s.apiAdminApproveUser))
+	mux.HandleFunc("/api/admin/reject", wrap(s.apiAdminRejectUser))
 
 	// App static website serving
-	mux.HandleFunc("/apps/", s.handleServeApp)
+	mux.HandleFunc("/apps/", wrap(s.handleServeApp))
+
+	// Installer script routes
+	mux.HandleFunc("/install.sh", wrap(s.handleInstallSh))
+	mux.HandleFunc("/install.ps1", wrap(s.handleInstallPs1))
+
+	// Binary assets serving
+	binariesDir := filepath.Join(s.dataDir, "binaries")
+	mux.Handle("/binaries/", http.StripPrefix("/binaries/", http.FileServer(http.Dir(binariesDir))))
 }
 
 // handleHome renders the gallery page.
@@ -147,6 +211,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleRegister processes registration.
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	allowSelfReg := os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+	if !allowSelfReg {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("<h3>Registration is disabled on this server.</h3><p><a href='/login'>Back to login</a></p>"))
+		return
+	}
+
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(RenderRegister("", nil)))
@@ -164,8 +236,18 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Log them in immediately
-		token, _ := s.store.LoginUser(username, password)
+		// Log them in immediately if approved
+		token, loginErr := s.store.LoginUser(username, password)
+		if loginErr != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if loginErr.Error() == "account pending admin approval" {
+				_, _ = w.Write([]byte(RenderLogin("Account registered successfully! Pending admin approval.", nil)))
+			} else {
+				_, _ = w.Write([]byte(RenderLogin("Registration successful. Please log in.", nil)))
+			}
+			return
+		}
+
 		http.SetCookie(w, &http.Cookie{
 			Name:     "session_token",
 			Value:    token,
@@ -294,6 +376,17 @@ func (s *Server) handleAppDetail(w http.ResponseWriter, r *http.Request) {
 
 // apiRegister endpoint
 func (s *Server) apiRegister(w http.ResponseWriter, r *http.Request) {
+	allowSelfReg := os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+	if !allowSelfReg {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Self-registration is disabled on this server",
+		})
+		return
+	}
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -315,10 +408,23 @@ func (s *Server) apiRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try to login to obtain token
+	token, loginErr := s.store.LoginUser(req.Username, req.Password)
+	if loginErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"pending": true,
+			"message": "Registration successful, pending admin approval",
+		})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"token":    user.Token,
+		"token":    token,
 		"username": user.Username,
 	})
 }
@@ -718,4 +824,521 @@ func extractZip(zipPath string, destDir string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Server) handleInstallSh(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+
+	// Check if local llamafile is hosted on this registry server
+	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	binariesDir := filepath.Join(s.dataDir, "binaries")
+	localPath := filepath.Join(binariesDir, "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
+	isLocal := false
+	if _, err := os.Stat(localPath); err == nil {
+		localLlamafileUrl = fmt.Sprintf("%s://%s/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile", scheme, host)
+		isLocal = true
+	}
+
+	sourceText := "from Hugging Face"
+	if isLocal {
+		sourceText = "directly from our sharing server (local cache)"
+	}
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -e
+
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+
+case "$ARCH" in
+    x86_64) ARCH="amd64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    armv7l|armv8l|arm) ARCH="arm" ;;
+    *) echo "❌ Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+case "$OS" in
+    darwin) OS_NAME="darwin" ;;
+    linux)
+        if [ -d "/data/data/com.termux" ] || [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+            OS_NAME="android"
+        else
+            OS_NAME="linux"
+        fi
+        ;;
+    *) echo "❌ Unsupported OS: $OS"; exit 1 ;;
+esac
+
+if [ "\${OS_NAME}" = "android" ] && [ "\${ARCH}" = "arm" ]; then
+    echo "❌ Android 32-bit is not supported. Only Android ARM64 is supported."
+    exit 1
+fi
+
+BINARY_NAME="promptyly-\${OS_NAME}-\${ARCH}"
+DOWNLOAD_URL="%s://%s/binaries/\${BINARY_NAME}"
+
+INSTALL_DIR="\${HOME}/.local/bin"
+if [ "\${OS_NAME}" = "android" ] && [ -n "\${PREFIX}" ]; then
+    INSTALL_DIR="\${PREFIX}/bin"
+fi
+
+mkdir -p "\${INSTALL_DIR}"
+INSTALL_PATH="\${INSTALL_DIR}/promptyly"
+
+echo "📥 Downloading Promptyly CLI (\${OS_NAME}/\${ARCH})..."
+echo "🔗 URL: \${DOWNLOAD_URL}"
+
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "\${DOWNLOAD_URL}" -o "\${INSTALL_PATH}"
+elif command -v wget >/dev/null 2>&1; then
+    wget -qO "\${INSTALL_PATH}" "\${DOWNLOAD_URL}"
+else
+    echo "❌ Neither curl nor wget found. Please install one."
+    exit 1
+fi
+
+chmod +x "\${INSTALL_PATH}"
+
+# Pre-configure CLI to point to this registry server
+"\${INSTALL_PATH}" config set sharing_server_url "%s://%s"
+
+# Register URL protocol handler
+echo "⚙️ Registering prompt:// URL scheme handler..."
+if ! "\${INSTALL_PATH}" register; then
+    echo "⚠️ URL scheme registration failed. You can run 'promptyly register' manually later."
+fi
+
+echo ""
+echo "--------------------------------------------------"
+echo "🤖 LLM Provider Setup"
+echo "--------------------------------------------------"
+echo "Promptyly needs a local or remote LLM provider to function."
+echo "Choose one of the following options:"
+echo "1) Configure LLM via API Key or URL (Gemini, Claude, Ollama, OpenAI)"
+echo "2) Install a local CPU coding model (Qwen2.5-Coder-1.5B via llamafile, ~1.2GB, runs on 4GB RAM)"
+echo "3) Skip configuration (you can run 'promptyly config setup' later)"
+echo ""
+printf "Enter choice (1-3) [default: 3]: "
+read CHOICE < /dev/tty
+if [ -z "\$CHOICE" ]; then
+    CHOICE="3"
+fi
+
+if [ "\$CHOICE" = "1" ]; then
+    echo ""
+    echo "Select LLM provider:"
+    echo "1) Gemini (Recommended - Google)"
+    echo "2) Claude (Anthropic)"
+    echo "3) Ollama (Local LLM Server)"
+    echo "4) OpenAI-compatible / LM Studio"
+    printf "Choose option (1-4) [default: 1]: "
+    read PROVIDER_CHOICE < /dev/tty
+    
+    PROVIDER="gemini"
+    if [ "\$PROVIDER_CHOICE" = "2" ]; then
+        PROVIDER="claude"
+    elif [ "\$PROVIDER_CHOICE" = "3" ]; then
+        PROVIDER="ollama"
+    elif [ "\$PROVIDER_CHOICE" = "4" ]; then
+        PROVIDER="lmstudio"
+    fi
+    
+    "\${INSTALL_PATH}" config set default_provider "\$PROVIDER"
+    
+    if [ "\$PROVIDER" = "gemini" ]; then
+        printf "Enter Gemini API Key: "
+        read API_KEY < /dev/tty
+        if [ -n "\$API_KEY" ]; then
+            "\${INSTALL_PATH}" config set gemini_key "\$API_KEY"
+        fi
+    elif [ "\$PROVIDER" = "claude" ]; then
+        printf "Enter Claude API Key: "
+        read API_KEY < /dev/tty
+        if [ -n "\$API_KEY" ]; then
+            "\${INSTALL_PATH}" config set claude_key "\$API_KEY"
+        fi
+    elif [ "\$PROVIDER" = "ollama" ]; then
+        printf "Enter Ollama Endpoint URL [default: http://localhost:11434]: "
+        read OLLAMA_URL < /dev/tty
+        if [ -n "\$OLLAMA_URL" ]; then
+            "\${INSTALL_PATH}" config set ollama_url "\$OLLAMA_URL"
+        fi
+        printf "Enter Ollama Model [default: llama3]: "
+        read OLLAMA_MODEL < /dev/tty
+        if [ -n "\$OLLAMA_MODEL" ]; then
+            "\${INSTALL_PATH}" config set ollama_model "\$OLLAMA_MODEL"
+        fi
+    elif [ "\$PROVIDER" = "lmstudio" ]; then
+        printf "Enter Endpoint URL [default: http://localhost:1234/v1]: "
+        read LM_URL < /dev/tty
+        if [ -n "\$LM_URL" ]; then
+            "\${INSTALL_PATH}" config set lmstudio_url "\$LM_URL"
+        fi
+        printf "Enter Model name [default: meta-llama-3-8b-instruct]: "
+        read LM_MODEL < /dev/tty
+        if [ -n "\$LM_MODEL" ]; then
+            "\${INSTALL_PATH}" config set lmstudio_model "\$LM_MODEL"
+        fi
+    fi
+elif [ "\$CHOICE" = "2" ]; then
+    echo ""
+    echo "📥 Downloading Qwen2.5-Coder-1.5B llamafile (~1.2GB) %s..."
+    echo "This might take several minutes depending on your internet connection."
+    
+    MODELS_DIR="\${HOME}/.local/share/promptyly/models"
+    mkdir -p "\${MODELS_DIR}"
+    MODEL_PATH="\${MODELS_DIR}/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
+    
+    DOWNLOAD_URL="%s"
+    
+    if command -v curl >/dev/null 2>&1; then
+        curl -L -f -# "\${DOWNLOAD_URL}" -o "\${MODEL_PATH}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --show-progress -O "\${MODEL_PATH}" "\${DOWNLOAD_URL}"
+    else
+        echo "❌ Neither curl nor wget found. Cannot download llamafile."
+        exit 1
+    fi
+    
+    chmod +x "\${MODEL_PATH}"
+    
+    # Configure CLI to use this llamafile
+    "\${INSTALL_PATH}" config set default_provider "lmstudio"
+    "\${INSTALL_PATH}" config set lmstudio_url "http://localhost:8080/v1"
+    "\${INSTALL_PATH}" config set lmstudio_model "qwen2.5-coder-1.5b-instruct"
+    
+    echo ""
+    echo "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to \${MODEL_PATH}"
+    echo "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:8080/v1"
+    echo ""
+    echo "💡 To run your local model, execute:"
+    echo "   \${MODEL_PATH}"
+    echo "And keep the terminal window open while using Promptyly."
+fi
+
+echo ""
+echo "✅ Installed successfully to \${INSTALL_PATH}"
+echo ""
+echo "🚀 Next steps:"
+if [ "\${OS_NAME}" != "android" ] || [ -z "\${PREFIX}" ]; then
+    echo "1. Add installation directory to your PATH if it is not already:"
+    echo "   export PATH=\"\\\$HOME/.local/bin:\\\$PATH\""
+    if [ "\$CHOICE" != "2" ] && [ "\$CHOICE" != "1" ]; then
+        echo "2. Set up your AI configuration:"
+        echo "   promptyly config setup"
+    fi
+else
+    if [ "\$CHOICE" != "2" ] && [ "\$CHOICE" != "1" ]; then
+        echo "1. Set up your AI configuration:"
+        echo "   promptyly config setup"
+    fi
+fi
+`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
+
+	w.Header().Set("Content-Type", "text/x-sh")
+	_, _ = w.Write([]byte(script))
+}
+
+func (s *Server) handleInstallPs1(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+
+	// Check if local llamafile is hosted on this registry server
+	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	binariesDir := filepath.Join(s.dataDir, "binaries")
+	localPath := filepath.Join(binariesDir, "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
+	isLocal := false
+	if _, err := os.Stat(localPath); err == nil {
+		localLlamafileUrl = fmt.Sprintf("%s://%s/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile", scheme, host)
+		isLocal = true
+	}
+
+	sourceText := "from Hugging Face"
+	if isLocal {
+		sourceText = "directly from our sharing server (local cache)"
+	}
+
+	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
+
+$rawArch = $env:PROCESSOR_ARCHITECTURE
+$arch6432 = $env:PROCESSOR_ARCHITEW6432
+
+if ($rawArch -eq "ARM64" -or $arch6432 -eq "ARM64") {
+    $targetArch = "arm64"
+} elseif ($rawArch -eq "AMD64" -or $arch6432 -eq "AMD64") {
+    $targetArch = "amd64"
+} else {
+    Write-Error "❌ Unsupported architecture: $rawArch"
+    exit 1
+}
+
+$installDir = Join-Path $HOME ".local\bin"
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+}
+
+$installPath = Join-Path $installDir "promptyly.exe"
+$downloadUrl = "%s://%s/binaries/promptyly-windows-$targetArch.exe"
+
+Write-Host "📥 Downloading Promptyly CLI (windows/$targetArch)..." -ForegroundColor Cyan
+Write-Host "🔗 URL: $downloadUrl" -ForegroundColor Gray
+
+Invoke-RestMethod -Uri $downloadUrl -OutFile $installPath
+
+# Pre-configure CLI to point to this registry server
+& $installPath config set sharing_server_url "%s://%s"
+
+# Register URL protocol handler
+Write-Host "⚙️ Registering prompt:// URL scheme handler..." -ForegroundColor Yellow
+try {
+    & $installPath register
+} catch {
+    Write-Warning "⚠️ URL scheme registration failed. You can run 'promptyly register' manually later."
+}
+
+Write-Host ""
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "🤖 LLM Provider Setup" -ForegroundColor Cyan
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "Promptyly needs a local or remote LLM provider to function."
+Write-Host "Choose one of the following options:"
+Write-Host "1) Configure LLM via API Key or URL (Gemini, Claude, Ollama, OpenAI)"
+Write-Host "2) Install a local CPU coding model (Qwen2.5-Coder-1.5B via llamafile, ~1.2GB, runs on 4GB RAM)"
+Write-Host "3) Skip configuration (you can run 'promptyly config setup' later)"
+Write-Host ""
+$choice = Read-Host "Enter choice (1-3) [default: 3]"
+if (-not $choice) { $choice = "3" }
+
+if ($choice -eq "1") {
+    Write-Host ""
+    Write-Host "Select LLM provider:"
+    Write-Host "1) Gemini (Recommended - Google)"
+    Write-Host "2) Claude (Anthropic)"
+    Write-Host "3) Ollama (Local LLM Server)"
+    Write-Host "4) OpenAI-compatible / LM Studio"
+    $providerChoice = Read-Host "Choose option (1-4) [default: 1]"
+    if (-not $providerChoice) { $providerChoice = "1" }
+
+    $provider = "gemini"
+    if ($providerChoice -eq "2") {
+        $provider = "claude"
+    } elseif ($providerChoice -eq "3") {
+        $provider = "ollama"
+    } elseif ($providerChoice -eq "4") {
+        $provider = "lmstudio"
+    }
+
+    & $installPath config set default_provider $provider
+
+    if ($provider -eq "gemini") {
+        $apiKey = Read-Host "Enter Gemini API Key"
+        if ($apiKey) {
+            & $installPath config set gemini_key $apiKey
+        }
+    } elseif ($provider -eq "claude") {
+        $apiKey = Read-Host "Enter Claude API Key"
+        if ($apiKey) {
+            & $installPath config set claude_key $apiKey
+        }
+    } elseif ($provider -eq "ollama") {
+        $ollamaUrl = Read-Host "Enter Ollama Endpoint URL [default: http://localhost:11434]"
+        if ($ollamaUrl) {
+            & $installPath config set ollama_url $ollamaUrl
+        }
+        $ollamaModel = Read-Host "Enter Ollama Model [default: llama3]"
+        if ($ollamaModel) {
+            & $installPath config set ollama_model $ollamaModel
+        }
+    } elseif ($provider -eq "lmstudio") {
+        $lmUrl = Read-Host "Enter Endpoint URL [default: http://localhost:1234/v1]"
+        if ($lmUrl) {
+            & $installPath config set lmstudio_url $lmUrl
+        }
+        $lmModel = Read-Host "Enter Model name [default: meta-llama-3-8b-instruct]"
+        if ($lmModel) {
+            & $installPath config set lmstudio_model $lmModel
+        }
+    }
+} elseif ($choice -eq "2") {
+    Write-Host ""
+    Write-Host "📥 Downloading Qwen2.5-Coder-1.5B llamafile (~1.2GB) %s..." -ForegroundColor Yellow
+    Write-Host "This might take several minutes depending on your internet connection." -ForegroundColor Yellow
+
+    $modelsDir = Join-Path $HOME ".local\share\promptyly\models"
+    if (-not (Test-Path $modelsDir)) {
+        New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
+    }
+    $modelPath = Join-Path $modelsDir "qwen2.5-coder-1.5b-instruct-q4_k_m.exe"
+    $downloadUrl = "%s"
+
+    Write-Host "🔗 URL: $downloadUrl" -ForegroundColor Gray
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $modelPath -UserAgent "Mozilla/5.0"
+
+    # Configure CLI to use this llamafile
+    & $installPath config set default_provider "lmstudio"
+    & $installPath config set lmstudio_url "http://localhost:8080/v1"
+    & $installPath config set lmstudio_model "qwen2.5-coder-1.5b-instruct"
+
+    Write-Host ""
+    Write-Host "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to $modelPath" -ForegroundColor Green
+    Write-Host "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:8080/v1" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "💡 To run your local model, execute:" -ForegroundColor Cyan
+    Write-Host '   & "$modelPath"' -ForegroundColor Cyan
+    Write-Host "And keep the terminal window open while using Promptyly." -ForegroundColor Cyan
+}
+
+Write-Host ""
+Write-Host "✅ Installed successfully to $installPath" -ForegroundColor Green
+
+$userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$installDir*") {
+    $newUserPath = "$userPath;$installDir"
+    [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+    Write-Host "✏️ Added $installDir to User PATH environment variable." -ForegroundColor Yellow
+    Write-Host "👉 Please restart your terminal/PowerShell for changes to take effect." -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "🚀 Next steps:" -ForegroundColor Cyan
+if ($choice -ne "1" -and $choice -ne "2") {
+    Write-Host "1. Configure your AI settings:" -ForegroundColor Gray
+    Write-Host "   promptyly config setup" -ForegroundColor Gray
+} else {
+    Write-Host "🎉 Your LLM has been successfully configured!" -ForegroundColor Green
+}
+`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
+
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte(script))
+}
+
+func (s *Server) handleAdminPanel(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getLoggedInUser(r)
+	if currentUser == nil || !currentUser.IsAdmin {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	users := s.store.ListUsers()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(RenderAdminPanel(users, currentUser)))
+}
+
+func (s *Server) apiAdminApproveUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getLoggedInUser(r)
+	if currentUser == nil || !currentUser.IsAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.ApproveUser(req.Username); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+	})
+}
+
+func (s *Server) apiAdminRejectUser(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getLoggedInUser(r)
+	if currentUser == nil || !currentUser.IsAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.RejectUser(req.Username); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+	})
+}
+
+func (s *Server) apiVersionCheck(w http.ResponseWriter, r *http.Request) {
+	clientVer := r.URL.Query().Get("version")
+	serverVer := config.Version
+
+	isNewer := isVersionNewer(clientVer, serverVer)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"server_version": serverVer,
+		"is_newer":       isNewer,
+	})
+}
+
+func isVersionNewer(clientVer, serverVer string) bool {
+	clientVer = strings.TrimPrefix(clientVer, "v")
+	serverVer = strings.TrimPrefix(serverVer, "v")
+
+	cParts := strings.Split(clientVer, ".")
+	sParts := strings.Split(serverVer, ".")
+
+	for i := 0; i < 3; i++ {
+		cVal := 0
+		sVal := 0
+		if i < len(cParts) {
+			fmt.Sscanf(cParts[i], "%d", &cVal)
+		}
+		if i < len(sParts) {
+			fmt.Sscanf(sParts[i], "%d", &sVal)
+		}
+		if sVal > cVal {
+			return true
+		}
+		if cVal > sVal {
+			return false
+		}
+	}
+	return false
 }

@@ -115,6 +115,21 @@ func CreateApp(ctx context.Context, cfg *config.Config, prompt string, onToken f
 		return "", "", err
 	}
 
+	// Write app-specific config to store the application configuration as a separate setup
+	localConfigDir := filepath.Join(appDir, ".promptyly")
+	_ = os.MkdirAll(localConfigDir, 0755)
+	localConfigPath := filepath.Join(localConfigDir, "config.json")
+	appConfigData := map[string]string{
+		"provider": prov,
+		"model":    provCfg.Model,
+	}
+	if configBytes, err := json.MarshalIndent(appConfigData, "", "  "); err == nil {
+		_ = os.WriteFile(localConfigPath, configBytes, 0644)
+	}
+	if err != nil {
+		return "", "", err
+	}
+
 	systemPrompt := `You are an expert Frontend Web Developer AI.
 Your task is to build a fully functional, self-contained, responsive, and visually stunning web application based on the user's prompt.
 You must return your output using specific XML tags:
@@ -283,7 +298,7 @@ func EditApp(ctx context.Context, cfg *config.Config, appName string, editPrompt
 		return fmt.Errorf("failed to read existing codebase: %v", err)
 	}
 
-	prov, provCfg := cfg.GetActiveProvider()
+	prov, provCfg := ResolveAppProvider(appDir, cfg)
 	client, err := agent.NewClient(prov, provCfg)
 	if err != nil {
 		return err
@@ -396,6 +411,19 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 	fmt.Printf("📁 Path: %s\n", appDir)
 	fmt.Printf("=========================================\n\n")
 
+	// Check for updates and automatically update in the background
+	go func() {
+		if res, err := config.CheckForUpdates(cfg.SharingServerURL); err == nil && res.IsNewer {
+			fmt.Printf("\n✨ UPDATE AVAILABLE: Version v%s is now available on the registry (you are running v%s)!\n", res.ServerVersion, config.Version)
+			fmt.Printf("⚙️ Automatically downloading and installing update (v%s) in the background...\n", res.ServerVersion)
+			if err := config.TriggerSelfUpdate(cfg.SharingServerURL); err == nil {
+				fmt.Printf("\n✅ Promptyly successfully updated to v%s! Changes will take effect on next run.\n\n", res.ServerVersion)
+			} else {
+				fmt.Printf("\n⚠️ Automatic update failed: %v. You can update manually using the installer or visit: %s\n\n", err, cfg.SharingServerURL)
+			}
+		}
+	}()
+
 	OpenBrowser(devURL)
 
 	fmt.Println("Interactive editing mode active.")
@@ -428,6 +456,11 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 			triggerReload(appName, port)
 			fmt.Println("✅ Hot-reload triggered!")
 			fmt.Println()
+			continue
+		}
+
+		if input == ".llm" || strings.HasPrefix(input, ".llm ") {
+			handleLlmCommand(cfg, appName, input)
 			continue
 		}
 
@@ -1039,5 +1072,262 @@ func DrawTPSGraph(history []float64) string {
 	sb.WriteString("     +------------------------------------\n")
 	sb.WriteString("       -60s                             0s\n")
 	return sb.String()
+}
+
+func ResolveAppProvider(appDir string, globalCfg *config.Config) (string, config.ProviderConfig) {
+	localPath := filepath.Join(appDir, ".promptyly", "config.json")
+	if _, err := os.Stat(localPath); err == nil {
+		data, err := os.ReadFile(localPath)
+		if err == nil {
+			var local struct {
+				Provider string `json:"provider"`
+				Model    string `json:"model"`
+			}
+			if json.Unmarshal(data, &local) == nil {
+				if local.Provider != "" {
+					pCfg, ok := globalCfg.Providers[local.Provider]
+					if ok {
+						if local.Model != "" {
+							pCfg.Model = local.Model
+						}
+						return local.Provider, pCfg
+					}
+				}
+			}
+		}
+	}
+	return globalCfg.GetActiveProvider()
+}
+
+func handleLlmCommand(cfg *config.Config, appName, input string) {
+	appDir, ok := cfg.Apps[appName]
+	if !ok {
+		if _, err := os.Stat(appName); err == nil {
+			appDir = appName
+		} else {
+			fmt.Printf("❌ App '%s' not registered\n", appName)
+			return
+		}
+	}
+
+	localPath := filepath.Join(appDir, ".promptyly", "config.json")
+	var local struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	}
+
+	if data, err := os.ReadFile(localPath); err == nil {
+		_ = json.Unmarshal(data, &local)
+	}
+
+	if local.Provider == "" {
+		activeProv, activeProvCfg := cfg.GetActiveProvider()
+		local.Provider = activeProv
+		local.Model = activeProvCfg.Model
+	}
+
+	args := strings.Fields(input)
+	if len(args) == 1 {
+		fmt.Printf("\n--- LLM Configuration for App '%s' ---\n", appName)
+		fmt.Printf("Active Provider: %s\n", local.Provider)
+		fmt.Printf("Active Model:    %s\n", local.Model)
+		fmt.Println("---------------------------------------")
+		fmt.Println("Available Providers & Models (Global Config):")
+
+		for prov, provCfg := range cfg.Providers {
+			fmt.Printf("  - %s (%s):\n", prov, provCfg.URL)
+			for _, m := range provCfg.Models {
+				activeMarker := ""
+				if prov == local.Provider && m == local.Model {
+					activeMarker = " (active)"
+				}
+				fmt.Printf("      * %s%s\n", m, activeMarker)
+			}
+		}
+		fmt.Println("\nTo change settings, use:")
+		fmt.Println("  .llm <provider> [model]   - Set provider and optional model for this app")
+		fmt.Println("  .llm download <model>     - Download a local llamafile model (qwen2.5-coder-1.5b-instruct, llama-3.2-1b-instruct)")
+		fmt.Println()
+		return
+	}
+
+	subcmd := strings.ToLower(args[1])
+	if subcmd == "download" {
+		if len(args) < 3 {
+			fmt.Println("❌ Usage: .llm download <model-name>")
+			return
+		}
+		modelName := args[2]
+		err := downloadLlamafile(modelName)
+		if err != nil {
+			fmt.Printf("❌ Download failed: %v\n", err)
+			return
+		}
+		if freshCfg, err := config.LoadConfig(); err == nil {
+			*cfg = *freshCfg
+		}
+		return
+	}
+
+	provider := args[1]
+	pCfg, exists := cfg.Providers[provider]
+	if !exists {
+		fmt.Printf("❌ Unknown provider: %s\n", provider)
+		return
+	}
+
+	model := pCfg.Model
+	if len(args) >= 3 {
+		model = args[2]
+		found := false
+		for _, m := range pCfg.Models {
+			if strings.ToLower(m) == strings.ToLower(model) {
+				model = m
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Printf("⚠️ Model '%s' is not in the default list for '%s', but setting it anyway.\n", model, provider)
+		}
+	}
+
+	local.Provider = provider
+	local.Model = model
+
+	localConfigDir := filepath.Join(appDir, ".promptyly")
+	_ = os.MkdirAll(localConfigDir, 0755)
+	if configBytes, err := json.MarshalIndent(local, "", "  "); err == nil {
+		if os.WriteFile(localPath, configBytes, 0644) == nil {
+			fmt.Printf("✅ Updated LLM setup for App '%s': %s (model: %s)\n\n", appName, provider, model)
+		} else {
+			fmt.Println("❌ Failed to write local config file.")
+		}
+	}
+}
+
+func downloadLlamafile(modelName string) error {
+	var url string
+	var filename string
+
+	switch strings.ToLower(modelName) {
+	case "qwen2.5-coder-1.5b-instruct", "qwen", "qwen1.5b":
+		url = "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+		filename = "qwen2.5-coder-1.5b-instruct-q4_k_m"
+	case "llama-3.2-1b-instruct", "llama", "llama1b":
+		url = "https://huggingface.co/Mozilla/Llama-3.2-1B-Instruct-llamafile/resolve/main/Llama-3.2-1B-Instruct.Q6_K.llamafile"
+		filename = "Llama-3.2-1B-Instruct.Q6_K"
+	default:
+		return fmt.Errorf("unknown llamafile model: %s (available options: qwen2.5-coder-1.5b-instruct, llama-3.2-1b-instruct)", modelName)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	modelsDir := filepath.Join(home, ".local", "share", "promptyly", "models")
+	_ = os.MkdirAll(modelsDir, 0755)
+
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	modelPath := filepath.Join(modelsDir, filename+ext)
+
+	if _, err := os.Stat(modelPath); err == nil {
+		fmt.Printf("✓ Llamafile model is already downloaded at: %s\n", modelPath)
+		return nil
+	}
+
+	// Try to use locally hosted llamafile from sharing server if configured and available
+	sourceText := "from Hugging Face"
+	if cfg, err := config.LoadConfig(); err == nil && cfg.SharingServerURL != "" {
+		checkURL := fmt.Sprintf("%s/binaries/%s.llamafile", strings.TrimSuffix(cfg.SharingServerURL, "/"), filename)
+		req, err := http.NewRequest("HEAD", checkURL, nil)
+		if err == nil {
+			req.Header.Set("User-Agent", "Mozilla/5.0")
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					url = checkURL
+					sourceText = "directly from your sharing server (local cache)"
+				}
+			}
+		}
+	}
+
+	fmt.Printf("\n📥 Downloading %s llamafile (~1.2GB) %s...\n", modelName, sourceText)
+	fmt.Println("This may take several minutes depending on your internet connection.")
+	fmt.Printf("🔗 URL: %s\n", url)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code from Hugging Face: %d", resp.StatusCode)
+	}
+
+	out, err := os.OpenFile(modelPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	total := resp.ContentLength
+	var written int64
+	buf := make([]byte, 32*1024)
+	lastPercent := -1
+
+	for {
+		nr, er := resp.Body.Read(buf)
+		if nr > 0 {
+			nw, ew := out.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				return ew
+			}
+		}
+		if er != nil {
+			if er == io.EOF {
+				break
+			}
+			return er
+		}
+
+		if total > 0 {
+			percent := int(float64(written) / float64(total) * 100)
+			if percent%10 == 0 && percent != lastPercent {
+				fmt.Printf("... %d%% downloaded (%s/%s)\n", percent, formatBytes(written), formatBytes(total))
+				lastPercent = percent
+			}
+		}
+	}
+
+	if err := os.Chmod(modelPath, 0755); err != nil {
+		fmt.Printf("⚠️ Warning: could not set executable permissions: %v\n", err)
+	}
+
+	fmt.Println("✅ Download complete!")
+	return nil
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 

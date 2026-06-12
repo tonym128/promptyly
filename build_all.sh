@@ -29,6 +29,8 @@ echo "   ✓ Built: ./promptyly"
 echo "⚙️  2. Compiling Sharing Registry Server binary..."
 $GO_CMD build -o sharing/sharing-server ./sharing
 echo "   ✓ Built: ./sharing/sharing-server"
+echo "⚙️  2. Packaging all platform binaries into sharing/data/binaries/..."
+./package.sh
 
 # 3. Package Browser Extension
 echo "⚙️  3. Packaging Browser Extension..."

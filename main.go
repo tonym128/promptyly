@@ -17,6 +17,7 @@ import (
 	"promptyly/config"
 	"promptyly/server"
 	"promptyly/urlscheme"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -347,6 +348,19 @@ func main() {
 		}
 
 	case "serve", "daemon":
+		// Check for updates and automatically update in the background on startup
+		go func() {
+			if res, err := config.CheckForUpdates(cfg.SharingServerURL); err == nil && res.IsNewer {
+				fmt.Printf("\n✨ UPDATE AVAILABLE: Version v%s is now available on the registry (you are running v%s)!\n", res.ServerVersion, config.Version)
+				fmt.Printf("⚙️ Automatically downloading and installing update (v%s) in the background...\n", res.ServerVersion)
+				if err := config.TriggerSelfUpdate(cfg.SharingServerURL); err == nil {
+					fmt.Printf("\n✅ Promptyly successfully updated to v%s! Changes will take effect on next run.\n\n", res.ServerVersion)
+				} else {
+					fmt.Printf("\n⚠️ Automatic update failed: %v. You can update manually using the installer or visit: %s\n\n", err, cfg.SharingServerURL)
+				}
+			}
+		}()
+
 		_, err := server.StartDevServer(port)
 		if err != nil {
 			fmt.Printf("❌ Failed to start server: %v\n", err)
@@ -666,19 +680,54 @@ func handleConfigSetup(cfg *config.Config) {
 	fmt.Println("2) Claude (Anthropic)")
 	fmt.Println("3) Ollama (Local LLM Server)")
 	fmt.Println("4) OpenAI-compatible (LM Studio, Local AI, etc.)")
-	fmt.Print("Choose option (1-4) [default: 1]: ")
+	fmt.Println("5) Local Llamafile (Download and set up Qwen2.5-Coder-1.5B CPU coding model - ~1.2GB)")
+	fmt.Print("Choose option (1-5) [default: 1]: ")
+
+	choice := "1"
+	if scanner.Scan() {
+		choice = strings.TrimSpace(scanner.Text())
+		if choice == "" {
+			choice = "1"
+		}
+	}
+
+	if choice == "5" {
+		err := downloadAndSetupLlamafile(cfg)
+		if err != nil {
+			fmt.Printf("❌ Failed to download model: %v\n", err)
+			return
+		}
+		cfg.DefaultProvider = "lmstudio"
+		pCfg := cfg.Providers["lmstudio"]
+		pCfg.URL = "http://localhost:8080/v1"
+		pCfg.Model = "qwen2.5-coder-1.5b-instruct"
+		cfg.Providers["lmstudio"] = pCfg
+		if err := config.SaveConfig(cfg); err != nil {
+			fmt.Printf("❌ Failed to save configuration: %v\n", err)
+		} else {
+			home, _ := os.UserHomeDir()
+			ext := ""
+			if runtime.GOOS == "windows" {
+				ext = ".exe"
+			}
+			modelPath := filepath.Join(home, ".local", "share", "promptyly", "models", "qwen2.5-coder-1.5b-instruct-q4_k_m"+ext)
+			fmt.Println("\n✅ Setup complete! Settings saved.")
+			fmt.Println("🤖 Default provider configured to Local Llamafile at http://localhost:8080/v1")
+			fmt.Println("\n💡 To run your local model, execute:")
+			fmt.Printf("   %s\n", modelPath)
+			fmt.Println("And keep the terminal window open while using Promptyly.")
+		}
+		return
+	}
 
 	provider := "gemini"
-	if scanner.Scan() {
-		choice := strings.TrimSpace(scanner.Text())
-		switch choice {
-		case "2":
-			provider = "claude"
-		case "3":
-			provider = "ollama"
-		case "4":
-			provider = "lmstudio"
-		}
+	switch choice {
+	case "2":
+		provider = "claude"
+	case "3":
+		provider = "ollama"
+	case "4":
+		provider = "lmstudio"
 	}
 	cfg.DefaultProvider = provider
 	fmt.Printf("Selected default provider: %s\n\n", provider)
@@ -765,6 +814,121 @@ func handleConfigSetup(cfg *config.Config) {
 	} else {
 		fmt.Println("\n✅ Setup complete! Settings saved.")
 	}
+}
+
+func downloadAndSetupLlamafile(cfg *config.Config) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	modelsDir := filepath.Join(home, ".local", "share", "promptyly", "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		return err
+	}
+
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	modelPath := filepath.Join(modelsDir, "qwen2.5-coder-1.5b-instruct-q4_k_m"+ext)
+
+	// Check if already downloaded
+	if _, err := os.Stat(modelPath); err == nil {
+		fmt.Printf("✓ Llamafile model is already downloaded at: %s\n", modelPath)
+		return nil
+	}
+
+	url := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	sourceText := "from Hugging Face"
+	if cfg != nil && cfg.SharingServerURL != "" {
+		checkURL := fmt.Sprintf("%s/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile", strings.TrimSuffix(cfg.SharingServerURL, "/"))
+		req, err := http.NewRequest("HEAD", checkURL, nil)
+		if err == nil {
+			req.Header.Set("User-Agent", "Mozilla/5.0")
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					url = checkURL
+					sourceText = "directly from your sharing server (local cache)"
+				}
+			}
+		}
+	}
+
+	fmt.Printf("\n📥 Downloading Qwen2.5-Coder-1.5B llamafile (~1.2GB) %s...\n", sourceText)
+	fmt.Println("This may take several minutes depending on your internet connection.")
+	fmt.Printf("🔗 URL: %s\n", url)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code from Hugging Face: %d", resp.StatusCode)
+	}
+
+	out, err := os.OpenFile(modelPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Implement progress logging
+	total := resp.ContentLength
+	var written int64
+	buf := make([]byte, 32*1024)
+	lastPercent := -1
+
+	for {
+		nr, er := resp.Body.Read(buf)
+		if nr > 0 {
+			nw, ew := out.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				return ew
+			}
+		}
+		if er != nil {
+			if er == io.EOF {
+				break
+			}
+			return er
+		}
+
+		if total > 0 {
+			percent := int(float64(written) / float64(total) * 100)
+			if percent%10 == 0 && percent != lastPercent {
+				fmt.Printf("... %d%% downloaded (%s/%s)\n", percent, formatBytes(written), formatBytes(total))
+				lastPercent = percent
+			}
+		}
+	}
+
+	if err := os.Chmod(modelPath, 0755); err != nil {
+		fmt.Printf("⚠️ Warning: could not set executable permissions: %v\n", err)
+	}
+
+	fmt.Println("✅ Download complete!")
+	return nil
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func handleList(cfg *config.Config) {

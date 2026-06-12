@@ -19,9 +19,28 @@
 
 ## Installation & Setup
 
-You can build and set up the entire Promptyly developer suite (Go Daemon, Sharing Registry, Desktop App dependencies, and Browser Extension) using a single command:
+You can install the pre-compiled Promptyly CLI binary directly via our automated install script. The script dynamically detects your operating system and CPU architecture (supporting AMD64, ARM/ARM64, and Android Termux), downloads the latest binary from the Sharing Registry, configures the registry server URL, and automatically registers the custom `prompt://` URL scheme handler. 
 
-### 1. Run the Unified Builder
+During the installation process, the installer will also walk you through setting up your LLM configuration. You can choose to configure a remote LLM API/URL (such as Gemini, Claude, Ollama, or an OpenAI-compatible endpoint) or select the option to automatically download and configure a lightweight, CPU-optimized local coding model (**Qwen2.5-Coder-1.5B** in **llamafile** format, which runs smoothly on machines with as little as 4GB RAM).
+
+### One-Line Installers (Recommended)
+
+* **macOS / Linux / Android (Termux)**:
+  ```bash
+  curl -fsSL http://localhost:6072/install.sh | sh
+  ```
+* **Windows (PowerShell)**:
+  ```powershell
+  irm http://localhost:6072/install.ps1 | iex
+  ```
+*(Note: Replace `http://localhost:6072` with the actual public URL of your registry server when installing in production)*
+
+---
+
+### Local Development Build
+If you prefer to compile the binaries locally and set up the development environment (including browser extension packaging):
+
+#### 1. Run the Unified Builder
 * **Linux / macOS**:
   ```bash
   ./build_all.sh
@@ -32,13 +51,18 @@ You can build and set up the entire Promptyly developer suite (Go Daemon, Sharin
   ```
 *(These scripts compile the local Go binaries, restore node dependencies for the desktop environment, and package the browser extension inside the `dist/` directory)*
 
-### 2. Move Daemon to System PATH (Optional)
+#### 2. Move Daemon to System PATH (Optional)
 To run the CLI tool globally from any directory:
-* **Linux / macOS**:
+* **Linux / macOS / Android**:
   ```bash
-  mv promptyly ~/.local/bin/  # Or another path in your $PATH
+  mv promptyly ~/.local/bin/  # Or another path in your $PATH (already in PATH if using Termux)
   ```
 * **Windows**: Add the folder containing `promptyly.exe` to your user **Environment Variables -> PATH**.
+
+After local building, you can manually register the `prompt://` custom URL scheme:
+```bash
+promptyly register
+```
 
 ---
 
@@ -172,6 +196,21 @@ Promptyly includes a remote sharing registry server (configured by default to po
   promptyly download <app-id>
   ```
 
+### Registry Server Security Options
+
+The Sharing Registry Server supports robust security and user management configurations via environment variables:
+
+* **Admin Account Generation**: On first startup, the server automatically generates a default administrator account (`admin`) and writes a secure, unique password to the server logs. You can override or pre-configure this via:
+  - `ADMIN_USERNAME`: The custom username for the server admin (default: `admin`).
+  - `ADMIN_PASSWORD`: The custom password for the server admin.
+* **Disable Self-Registration**: Restrict account creation by setting:
+  - `ALLOW_SELF_REGISTRATION=false`: Disables the `/register` web form and API. Registration attempts will return `403 Forbidden`.
+* **Require Admin Approval**: Set to hold new registrations for review:
+  - `REQUIRE_ADMIN_APPROVAL=true`: New registrations default to pending approval. They cannot log in, get an API token, or publish apps until approved by an admin.
+  - **Admin Panel**: When signed in as an administrator, an "Admin Panel" link will appear in the navigation bar, allowing you to list, approve, or delete registered user accounts.
+* **Require Login to View Registry**: Secure the entire registry website and API by setting:
+  - `REQUIRE_LOGIN_TO_VIEW=true`: Anonymous users cannot view apps, search, or access the gallery. Web routes redirect to `/login`, and REST APIs return `401 Unauthorized`. (Core installer scripts and public binaries remain open so client machines can still install the CLI).
+
 ---
 
 ## Browser Extension Interceptor
@@ -211,3 +250,46 @@ To make Promptyly easy to launch and run, the following utilities and environmen
 
 3. **Packaging Utility**:
    - Run **[`./package.sh`](file:///home/tonym/Projects/promptyly/package.sh)** to cross-compile Go daemon binaries for Windows, macOS, and Linux, while bundling the browser extension as a ready-to-release ZIP archive in `dist/`.
+
+### Llamafile Server Hosting (Local Cache)
+
+To support offline installations or speed up setup processes, you can host the **Qwen2.5-Coder-1.5B** llamafile model directly on your Sharing Registry server. When configured, client installations and configuration commands will automatically fetch the model from your local server instead of Hugging Face.
+
+1. **Docker Build/Run Process**:
+   Configure this via the `INCLUDE_LLAMAFILE` environment variable at image build time:
+   ```bash
+   INCLUDE_LLAMAFILE=true docker compose build
+   # Or build and run directly:
+   INCLUDE_LLAMAFILE=true docker compose up -d --build
+   ```
+
+2. **Local Build/Packaging**:
+   Set `INCLUDE_LLAMAFILE=true` before running the compilation and packaging scripts:
+   - **Linux / macOS**:
+     ```bash
+     export INCLUDE_LLAMAFILE=true
+     ./build_all.sh
+     ```
+   - **Windows (PowerShell)**:
+     ```powershell
+     $env:INCLUDE_LLAMAFILE="true"
+     .\build_all.ps1
+     ```
+
+Once hosted, client scripts (`install.sh`, `install.ps1`) and CLI setup commands (`promptyly config setup`, `.llm download`) will auto-detect the local copy on the registry server and use it for downloads.
+
+---
+
+## 🔄 Auto-Updates & Version Checks
+
+Promptyly features a fully automatic update mechanism to keep client CLIs and services up-to-date:
+
+1. **Automatic Updates on Next Run**:
+   When starting the background daemon (`promptyly serve`) or initiating an interactive edit session (`promptyly run` or `promptyly create`), the CLI queries the configured registry server for updates in the background. If a newer version is available:
+   - It downloads the appropriate binary for your OS and architecture automatically in the background.
+   - It replaces the running executable on disk. On Windows, a background PowerShell script handles swapping the files on exit when the file lock is released.
+   - The update completes silently and takes effect on your **next run**.
+
+2. **WebUI Update Banner**:
+   Opening the Hub dashboard (`http://localhost:6071`) triggers a version check in the browser. If a new version is found, a banner alert will display at the top of the interface with an **Update Now** link pointing to the server's installer scripts.
+

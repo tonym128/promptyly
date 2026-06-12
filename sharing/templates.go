@@ -8,12 +8,17 @@ import (
 func getHeader(title string, user *User) string {
 	navLinks := ""
 	if user != nil {
+		adminLink := ""
+		if user.IsAdmin {
+			adminLink = `<a href="/admin" class="nav-link" style="color: #a5b4fc; font-weight: 600;">Admin Panel</a>`
+		}
 		navLinks = fmt.Sprintf(`
             <span class="user-greeting">Welcome, <strong>%s</strong></span>
+            %s
             <a href="/profile" class="nav-link">Profile</a>
             <a href="/upload" class="nav-link">Upload App</a>
             <a href="/logout" class="nav-btn">Logout</a>
-        `, html.EscapeString(user.Username))
+        `, html.EscapeString(user.Username), adminLink)
 	} else {
 		navLinks = `
             <a href="/login" class="nav-link">Login</a>
@@ -851,4 +856,109 @@ func RenderProfile(user *User) string {
 	)
 
 	return getHeader("Developer Profile", user) + body + getFooter()
+}
+
+func RenderAdminPanel(users []*User, currentUser *User) string {
+	var rows string
+	for _, u := range users {
+		adminBadge := `<span style="background: rgba(255,255,255,0.05); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">User</span>`
+		if u.IsAdmin {
+			adminBadge = `<span style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">Admin</span>`
+		}
+
+		approvalBadge := `<span style="background: rgba(239, 84, 84, 0.15); color: var(--error-color); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">Pending</span>`
+		if u.IsApproved {
+			approvalBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: var(--success-color); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">Approved</span>`
+		}
+
+		actions := ""
+		if u.Username != currentUser.Username {
+			approveBtn := ""
+			if !u.IsApproved {
+				approveBtn = fmt.Sprintf(`<button class="btn-submit" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px;" onclick="approveUser('%s')">Approve</button>`, u.Username)
+			}
+			rejectBtn := fmt.Sprintf(`<button class="btn-submit" style="background: var(--error-color); padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; margin-left: 8px;" onclick="rejectUser('%s')">Delete</button>`, u.Username)
+			actions = approveBtn + rejectBtn
+		} else {
+			actions = `<span style="color: var(--text-muted); font-size: 0.85rem;">Current Admin</span>`
+		}
+
+		rows += fmt.Sprintf(`
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 14px; font-weight: 500;">%s</td>
+                <td style="padding: 14px; color: var(--text-secondary);">%s</td>
+                <td style="padding: 14px;">%s</td>
+                <td style="padding: 14px;">%s</td>
+                <td style="padding: 14px; text-align: right;">%s</td>
+            </tr>
+        `, html.EscapeString(u.Username), u.CreatedAt.Format("2006-01-02 15:04"), adminBadge, approvalBadge, actions)
+	}
+
+	body := fmt.Sprintf(`
+        <div style="max-width: 900px; margin: 40px auto; padding: 0 24px; flex-grow: 1; width: 100%%;">
+            <div class="card" style="padding: 36px; border-radius: 12px;">
+                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Admin Dashboard</h2>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 32px;">Manage registered developer accounts and pending approvals.</p>
+
+                <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <table style="width: 100%%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02); color: var(--text-secondary);">
+                                <th style="padding: 14px;">Username</th>
+                                <th style="padding: 14px;">Created At</th>
+                                <th style="padding: 14px;">Role</th>
+                                <th style="padding: 14px;">Status</th>
+                                <th style="padding: 14px; text-align: right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            %s
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function approveUser(username) {
+                if (!confirm("Are you sure you want to approve user " + username + "?")) return;
+                try {
+                    const resp = await fetch("/api/admin/approve", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username })
+                    });
+                    const res = await resp.json();
+                    if (res.success) {
+                        location.reload();
+                    } else {
+                        alert("Error: " + res.error);
+                    }
+                } catch (e) {
+                    alert("Approve failed: " + e);
+                }
+            }
+
+            async function rejectUser(username) {
+                if (!confirm("Are you sure you want to delete user " + username + "? This action is irreversible.")) return;
+                try {
+                    const resp = await fetch("/api/admin/reject", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username })
+                    });
+                    const res = await resp.json();
+                    if (res.success) {
+                        location.reload();
+                    } else {
+                        alert("Error: " + res.error);
+                    }
+                } catch (e) {
+                    alert("Reject failed: " + e);
+                }
+            }
+        </script>
+    `, rows)
+
+	return getHeader("Admin Panel", currentUser) + body + getFooter()
 }

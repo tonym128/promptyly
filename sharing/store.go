@@ -20,6 +20,8 @@ type User struct {
 	PasswordHash string    `json:"password_hash"`
 	Salt         string    `json:"salt"`
 	Token        string    `json:"token"`
+	IsAdmin      bool      `json:"is_admin"`
+	IsApproved   bool      `json:"is_approved"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -146,12 +148,16 @@ func (s *Store) RegisterUser(username, password string) (*User, error) {
 	salt := generateRandomString(16)
 	token := generateRandomString(32)
 
+	requireApproval := os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
+
 	user := &User{
 		ID:           generateRandomString(8),
 		Username:     username,
 		PasswordHash: hashPassword(password, salt),
 		Salt:         salt,
 		Token:        token,
+		IsAdmin:      false,
+		IsApproved:   !requireApproval,
 		CreatedAt:    time.Now(),
 	}
 
@@ -178,6 +184,10 @@ func (s *Store) LoginUser(username, password string) (string, error) {
 	expectedHash := hashPassword(password, user.Salt)
 	if user.PasswordHash != expectedHash {
 		return "", errors.New("invalid username or password")
+	}
+
+	if !user.IsApproved && !user.IsAdmin {
+		return "", errors.New("account pending admin approval")
 	}
 
 	// Rotate or refresh token
@@ -351,4 +361,109 @@ func (s *Store) IncrementDownloads(id string) {
 		app.Downloads++
 		_ = s.saveLocked()
 	}
+}
+
+func (s *Store) EnsureAdminUser(envUser, envPass string) (string, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if an admin already exists
+	adminExists := false
+	for _, user := range s.Users {
+		if user.IsAdmin {
+			adminExists = true
+			break
+		}
+	}
+
+	if adminExists {
+		return "", "", nil
+	}
+
+	// No admin exists, create one
+	username := "admin"
+	if envUser != "" {
+		username = envUser
+	}
+
+	usernameNorm := strings.ToLower(strings.TrimSpace(username))
+	
+	// If the user already exists, we make them admin. Otherwise we create them.
+	user, exists := s.Users[usernameNorm]
+	var password string
+	if exists {
+		user.IsAdmin = true
+		user.IsApproved = true
+	} else {
+		password = envPass
+		if password == "" {
+			password = generateRandomString(12) // Generates 24 hex characters
+		}
+		salt := generateRandomString(16)
+		token := generateRandomString(32)
+
+		user = &User{
+			ID:           generateRandomString(8),
+			Username:     username,
+			PasswordHash: hashPassword(password, salt),
+			Salt:         salt,
+			Token:        token,
+			IsAdmin:      true,
+			IsApproved:   true,
+			CreatedAt:    time.Now(),
+		}
+		s.Users[usernameNorm] = user
+		s.Tokens[token] = usernameNorm
+	}
+
+	if err := s.saveLocked(); err != nil {
+		return "", "", err
+	}
+
+	return username, password, nil
+}
+
+func (s *Store) ListUsers() []*User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var list []*User
+	for _, user := range s.Users {
+		list = append(list, user)
+	}
+	return list
+}
+
+func (s *Store) ApproveUser(username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	usernameNorm := strings.ToLower(strings.TrimSpace(username))
+	user, exists := s.Users[usernameNorm]
+	if !exists {
+		return fmt.Errorf("user '%s' not found", username)
+	}
+
+	user.IsApproved = true
+	return s.saveLocked()
+}
+
+func (s *Store) RejectUser(username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	usernameNorm := strings.ToLower(strings.TrimSpace(username))
+	_, exists := s.Users[usernameNorm]
+	if !exists {
+		return fmt.Errorf("user '%s' not found", username)
+	}
+
+	// Delete from Users and Tokens
+	delete(s.Users, usernameNorm)
+	for t, u := range s.Tokens {
+		if u == usernameNorm {
+			delete(s.Tokens, t)
+		}
+	}
+	return s.saveLocked()
 }

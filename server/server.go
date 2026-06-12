@@ -1236,6 +1236,65 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    async function checkRegistryVersion() {
+        const serverUrl = activeConfig.sharing_server_url || 'http://localhost:6072';
+        try {
+            const resp = await fetch(serverUrl + '/api/version/check?version={{VERSION}}');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.is_newer) {
+                    showVersionNotification(data.server_version, serverUrl);
+                }
+            }
+        } catch (e) {
+            console.log('Skipping version check:', e);
+        }
+    }
+
+    function showVersionNotification(newVersion, serverUrl) {
+        if (document.getElementById('promptyly-update-banner')) return;
+        const container = document.querySelector('.container');
+        if (!container) return;
+
+        const style = document.createElement('style');
+        style.textContent = '@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }';
+        document.head.appendChild(style);
+
+        const alertDiv = document.createElement('div');
+        alertDiv.id = 'promptyly-update-banner';
+        alertDiv.style.cssText = 'background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%%, rgba(165, 180, 252, 0.2) 100%%);' +
+            'border: 1px solid rgba(99, 102, 241, 0.3);' +
+            'border-radius: 8px;' +
+            'padding: 16px 20px;' +
+            'margin-bottom: 24px;' +
+            'display: flex;' +
+            'align-items: center;' +
+            'justify-content: space-between;' +
+            'gap: 16px;' +
+            'box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);' +
+            'backdrop-filter: blur(10px);' +
+            'animation: slideDown 0.3s ease-out;';
+        
+        alertDiv.innerHTML = '<div style="display: flex; align-items: center; gap: 12px;">' +
+            '<span style="font-size: 1.5rem;">🚀</span>' +
+            '<div>' +
+                '<strong style="color: #f8fafc; font-size: 0.95rem;">New Version Available!</strong>' +
+                '<p style="color: #94a3b8; font-size: 0.85rem; margin: 4px 0 0 0;">Version <strong style="color: #a5b4fc;">v' + newVersion + '</strong> is now available on the registry. You are running v{{VERSION}}.</p>' +
+            '</div>' +
+        '</div>' +
+        '<div style="display: flex; gap: 12px; align-items: center;">' +
+            '<a href="' + serverUrl + '/install.sh" target="_blank" style="text-decoration: none; background: linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%); color: white; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25); display: inline-block;">Update Now</a>' +
+            '<button onclick="document.getElementById(\'promptyly-update-banner\').remove()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; padding: 4px 8px; outline: none;">✕</button>' +
+        '</div>';
+        
+        const tabs = document.querySelector('.nav-tabs');
+        if (tabs) {
+            container.insertBefore(alertDiv, tabs);
+        } else {
+            container.prepend(alertDiv);
+        }
+    }
+
     async function loadSettings() {
         try {
             const res = await fetch('/api/config', {
@@ -1243,6 +1302,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             });
             if (!res.ok) throw new Error('Daemon config error');
             activeConfig = await res.json();
+            checkRegistryVersion();
 
             document.getElementById('set-provider').value = activeConfig.default_provider || 'gemini';
             document.getElementById('set-apps-dir').value = activeConfig.apps_dir || '';

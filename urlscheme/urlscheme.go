@@ -22,6 +22,9 @@ func Register() error {
 		return registerWindows(execPath)
 	case "darwin":
 		return registerMacOS(execPath)
+	case "android":
+		fmt.Println("Custom URL protocol registration is not supported on Android (Termux).")
+		return nil
 	default:
 		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
@@ -73,12 +76,13 @@ NoDisplay=true
 func registerWindows(execPath string) error {
 	// On Windows, we can use the reg.exe command to add keys without importing golang.org/x/sys/windows/registry,
 	// keeping build configuration simple and compiling on all operating systems.
+	// We write to HKCU (HKEY_CURRENT_USER) to avoid requiring administrator privileges.
 	escapedExec := fmt.Sprintf(`\"%s\" handle \"%%1\"`, execPath)
 
 	commands := [][]string{
-		{"add", "HKCR\\prompt", "/ve", "/d", "URL:Promptyly Protocol", "/f"},
-		{"add", "HKCR\\prompt", "/v", "URL Protocol", "/d", "", "/f"},
-		{"add", "HKCR\\prompt\\shell\\open\\command", "/ve", "/d", escapedExec, "/f"},
+		{"add", "HKCU\\Software\\Classes\\prompt", "/ve", "/d", "URL:Promptyly Protocol", "/f"},
+		{"add", "HKCU\\Software\\Classes\\prompt", "/v", "URL Protocol", "/d", "", "/f"},
+		{"add", "HKCU\\Software\\Classes\\prompt\\shell\\open\\command", "/ve", "/d", escapedExec, "/f"},
 	}
 
 	for _, args := range commands {
@@ -110,6 +114,9 @@ func Unregister() error {
 		return unregisterWindows()
 	case "darwin":
 		return unregisterMacOS()
+	case "android":
+		fmt.Println("Custom URL protocol unregistration on Android is not applicable.")
+		return nil
 	default:
 		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
@@ -139,7 +146,7 @@ func unregisterLinux() error {
 }
 
 func unregisterWindows() error {
-	cmd := exec.Command("reg", "delete", "HKCR\\prompt", "/f")
+	cmd := exec.Command("reg", "delete", "HKCU\\Software\\Classes\\prompt", "/f")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to delete registry key: %v", err)
 	}
