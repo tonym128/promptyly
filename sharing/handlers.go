@@ -76,7 +76,7 @@ func (s *Server) requireLoginMiddleware(next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 
-		requireLogin := os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
+		requireLogin := s.store.GetConfig().RequireLoginToView
 		if requireLogin {
 			isAPI := strings.HasPrefix(path, "/api/")
 			var user *User
@@ -110,6 +110,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// Web UI routes
 	mux.HandleFunc("/", wrap(s.handleHome))
+	mux.HandleFunc("/registry", wrap(s.handleRegistry))
 	mux.HandleFunc("/login", wrap(s.handleLogin))
 	mux.HandleFunc("/register", wrap(s.handleRegister))
 	mux.HandleFunc("/logout", wrap(s.handleLogout))
@@ -132,6 +133,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// Admin API routes
 	mux.HandleFunc("/api/admin/approve", wrap(s.apiAdminApproveUser))
 	mux.HandleFunc("/api/admin/reject", wrap(s.apiAdminRejectUser))
+	mux.HandleFunc("/api/admin/config", wrap(s.apiAdminUpdateConfig))
 
 	// App static website serving
 	mux.HandleFunc("/apps/", wrap(s.handleServeApp))
@@ -145,13 +147,20 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/binaries/", http.StripPrefix("/binaries/", http.FileServer(http.Dir(binariesDir))))
 }
 
-// handleHome renders the gallery page.
+// handleHome renders the landing page.
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
+	user := s.getLoggedInUser(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(RenderLandingPage(user)))
+}
+
+// handleRegistry renders the gallery page.
+func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 	user := s.getLoggedInUser(r)
 	query := r.URL.Query().Get("q")
 	var apps []*App
@@ -211,7 +220,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleRegister processes registration.
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	allowSelfReg := os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+	allowSelfReg := s.store.GetConfig().AllowSelfRegistration
 	if !allowSelfReg {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
@@ -376,7 +385,7 @@ func (s *Server) handleAppDetail(w http.ResponseWriter, r *http.Request) {
 
 // apiRegister endpoint
 func (s *Server) apiRegister(w http.ResponseWriter, r *http.Request) {
-	allowSelfReg := os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+	allowSelfReg := s.store.GetConfig().AllowSelfRegistration
 	if !allowSelfReg {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -873,43 +882,99 @@ case "$OS" in
     *) echo "❌ Unsupported OS: $OS"; exit 1 ;;
 esac
 
-if [ "\${OS_NAME}" = "android" ] && [ "\${ARCH}" = "arm" ]; then
+if [ "${OS_NAME}" = "android" ] && [ "${ARCH}" = "arm" ]; then
     echo "❌ Android 32-bit is not supported. Only Android ARM64 is supported."
     exit 1
 fi
 
-BINARY_NAME="promptyly-\${OS_NAME}-\${ARCH}"
-DOWNLOAD_URL="%s://%s/binaries/\${BINARY_NAME}"
+BINARY_NAME="promptyly-${OS_NAME}-${ARCH}"
+DOWNLOAD_URL="%s://%s/binaries/${BINARY_NAME}"
 
-INSTALL_DIR="\${HOME}/.local/bin"
-if [ "\${OS_NAME}" = "android" ] && [ -n "\${PREFIX}" ]; then
-    INSTALL_DIR="\${PREFIX}/bin"
+INSTALL_DIR="${HOME}/.local/bin"
+if [ "${OS_NAME}" = "android" ] && [ -n "${PREFIX}" ]; then
+    INSTALL_DIR="${PREFIX}/bin"
 fi
 
-mkdir -p "\${INSTALL_DIR}"
-INSTALL_PATH="\${INSTALL_DIR}/promptyly"
+mkdir -p "${INSTALL_DIR}"
+INSTALL_PATH="${INSTALL_DIR}/promptyly"
 
-echo "📥 Downloading Promptyly CLI (\${OS_NAME}/\${ARCH})..."
-echo "🔗 URL: \${DOWNLOAD_URL}"
+echo "📥 Downloading Promptyly CLI (${OS_NAME}/${ARCH})..."
+echo "🔗 URL: ${DOWNLOAD_URL}"
 
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "\${DOWNLOAD_URL}" -o "\${INSTALL_PATH}"
+    curl -fsSL "${DOWNLOAD_URL}" -o "${INSTALL_PATH}"
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO "\${INSTALL_PATH}" "\${DOWNLOAD_URL}"
+    wget -qO "${INSTALL_PATH}" "${DOWNLOAD_URL}"
 else
     echo "❌ Neither curl nor wget found. Please install one."
     exit 1
 fi
 
-chmod +x "\${INSTALL_PATH}"
+chmod +x "${INSTALL_PATH}"
 
 # Pre-configure CLI to point to this registry server
-"\${INSTALL_PATH}" config set sharing_server_url "%s://%s"
+"${INSTALL_PATH}" config set sharing_server_url "%s://%s"
 
 # Register URL protocol handler
 echo "⚙️ Registering prompt:// URL scheme handler..."
-if ! "\${INSTALL_PATH}" register; then
+if ! "${INSTALL_PATH}" register; then
     echo "⚠️ URL scheme registration failed. You can run 'promptyly register' manually later."
+fi
+
+# Setup systemd user service on Linux
+if [ "${OS_NAME}" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+    echo "⚙️ Setting up systemd user service for Promptyly daemon..."
+    mkdir -p "${HOME}/.config/systemd/user"
+    cat <<EOF > "${HOME}/.config/systemd/user/promptyly.service"
+[Unit]
+Description=Promptyly Developer Daemon
+After=network.target
+
+[Service]
+ExecStart=${INSTALL_PATH} serve
+Restart=on-failure
+Environment=HOST=127.0.0.1
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable promptyly.service
+    systemctl --user restart promptyly.service
+    echo "✓ systemd user service enabled and started!"
+fi
+
+# Setup launchd agent on macOS
+if [ "${OS_NAME}" = "darwin" ]; then
+    echo "⚙️ Setting up launchd user agent for Promptyly daemon..."
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat <<EOF > "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.promptyly.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${INSTALL_PATH}</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOST</key>
+        <string>127.0.0.1</string>
+    </dict>
+</dict>
+</plist>
+EOF
+    launchctl unload "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist" 2>/dev/null || true
+    launchctl load "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist"
+    echo "✓ launchd user agent enabled and started!"
 fi
 
 echo ""
@@ -924,11 +989,11 @@ echo "3) Skip configuration (you can run 'promptyly config setup' later)"
 echo ""
 printf "Enter choice (1-3) [default: 3]: "
 read CHOICE < /dev/tty
-if [ -z "\$CHOICE" ]; then
+if [ -z "$CHOICE" ]; then
     CHOICE="3"
 fi
 
-if [ "\$CHOICE" = "1" ]; then
+if [ "$CHOICE" = "1" ]; then
     echo ""
     echo "Select LLM provider:"
     echo "1) Gemini (Recommended - Google)"
@@ -939,105 +1004,104 @@ if [ "\$CHOICE" = "1" ]; then
     read PROVIDER_CHOICE < /dev/tty
     
     PROVIDER="gemini"
-    if [ "\$PROVIDER_CHOICE" = "2" ]; then
+    if [ "$PROVIDER_CHOICE" = "2" ]; then
         PROVIDER="claude"
-    elif [ "\$PROVIDER_CHOICE" = "3" ]; then
+    elif [ "$PROVIDER_CHOICE" = "3" ]; then
         PROVIDER="ollama"
-    elif [ "\$PROVIDER_CHOICE" = "4" ]; then
+    elif [ "$PROVIDER_CHOICE" = "4" ]; then
         PROVIDER="lmstudio"
     fi
     
-    "\${INSTALL_PATH}" config set default_provider "\$PROVIDER"
+    "${INSTALL_PATH}" config set default_provider "$PROVIDER"
     
-    if [ "\$PROVIDER" = "gemini" ]; then
+    if [ "$PROVIDER" = "gemini" ]; then
         printf "Enter Gemini API Key: "
         read API_KEY < /dev/tty
-        if [ -n "\$API_KEY" ]; then
-            "\${INSTALL_PATH}" config set gemini_key "\$API_KEY"
+        if [ -n "$API_KEY" ]; then
+            "${INSTALL_PATH}" config set gemini_key "$API_KEY"
         fi
-    elif [ "\$PROVIDER" = "claude" ]; then
+    elif [ "$PROVIDER" = "claude" ]; then
         printf "Enter Claude API Key: "
         read API_KEY < /dev/tty
-        if [ -n "\$API_KEY" ]; then
-            "\${INSTALL_PATH}" config set claude_key "\$API_KEY"
+        if [ -n "$API_KEY" ]; then
+            "${INSTALL_PATH}" config set claude_key "$API_KEY"
         fi
-    elif [ "\$PROVIDER" = "ollama" ]; then
+    elif [ "$PROVIDER" = "ollama" ]; then
         printf "Enter Ollama Endpoint URL [default: http://localhost:11434]: "
         read OLLAMA_URL < /dev/tty
-        if [ -n "\$OLLAMA_URL" ]; then
-            "\${INSTALL_PATH}" config set ollama_url "\$OLLAMA_URL"
+        if [ -n "$OLLAMA_URL" ]; then
+            "${INSTALL_PATH}" config set ollama_url "$OLLAMA_URL"
         fi
         printf "Enter Ollama Model [default: llama3]: "
         read OLLAMA_MODEL < /dev/tty
-        if [ -n "\$OLLAMA_MODEL" ]; then
-            "\${INSTALL_PATH}" config set ollama_model "\$OLLAMA_MODEL"
+        if [ -n "$OLLAMA_MODEL" ]; then
+            "${INSTALL_PATH}" config set ollama_model "$OLLAMA_MODEL"
         fi
-    elif [ "\$PROVIDER" = "lmstudio" ]; then
+    elif [ "$PROVIDER" = "lmstudio" ]; then
         printf "Enter Endpoint URL [default: http://localhost:1234/v1]: "
         read LM_URL < /dev/tty
-        if [ -n "\$LM_URL" ]; then
-            "\${INSTALL_PATH}" config set lmstudio_url "\$LM_URL"
+        if [ -n "$LM_URL" ]; then
+            "${INSTALL_PATH}" config set lmstudio_url "$LM_URL"
         fi
         printf "Enter Model name [default: meta-llama-3-8b-instruct]: "
         read LM_MODEL < /dev/tty
-        if [ -n "\$LM_MODEL" ]; then
-            "\${INSTALL_PATH}" config set lmstudio_model "\$LM_MODEL"
+        if [ -n "$LM_MODEL" ]; then
+            "${INSTALL_PATH}" config set lmstudio_model "$LM_MODEL"
         fi
     fi
-elif [ "\$CHOICE" = "2" ]; then
+elif [ "$CHOICE" = "2" ]; then
     echo ""
     echo "📥 Downloading Qwen2.5-Coder-1.5B llamafile (~1.2GB) %s..."
     echo "This might take several minutes depending on your internet connection."
     
-    MODELS_DIR="\${HOME}/.local/share/promptyly/models"
-    mkdir -p "\${MODELS_DIR}"
-    MODEL_PATH="\${MODELS_DIR}/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
+    MODELS_DIR="${HOME}/.local/share/promptyly/models"
+    mkdir -p "${MODELS_DIR}"
+    MODEL_PATH="${MODELS_DIR}/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
     
     DOWNLOAD_URL="%s"
     
     if command -v curl >/dev/null 2>&1; then
-        curl -L -f -# "\${DOWNLOAD_URL}" -o "\${MODEL_PATH}"
+        curl -L -f -# "${DOWNLOAD_URL}" -o "${MODEL_PATH}"
     elif command -v wget >/dev/null 2>&1; then
-        wget --show-progress -O "\${MODEL_PATH}" "\${DOWNLOAD_URL}"
+        wget --show-progress -O "${MODEL_PATH}" "${DOWNLOAD_URL}"
     else
         echo "❌ Neither curl nor wget found. Cannot download llamafile."
         exit 1
     fi
     
-    chmod +x "\${MODEL_PATH}"
+    chmod +x "${MODEL_PATH}"
     
     # Configure CLI to use this llamafile
-    "\${INSTALL_PATH}" config set default_provider "lmstudio"
-    "\${INSTALL_PATH}" config set lmstudio_url "http://localhost:8080/v1"
-    "\${INSTALL_PATH}" config set lmstudio_model "qwen2.5-coder-1.5b-instruct"
+    "${INSTALL_PATH}" config set default_provider "lmstudio"
+    "${INSTALL_PATH}" config set lmstudio_url "http://localhost:6073/v1"
+    "${INSTALL_PATH}" config set lmstudio_model "qwen2.5-coder-1.5b-instruct"
     
     echo ""
-    echo "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to \${MODEL_PATH}"
-    echo "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:8080/v1"
+    echo "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to ${MODEL_PATH}"
+    echo "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:6073/v1"
     echo ""
     echo "💡 To run your local model, execute:"
-    echo "   \${MODEL_PATH}"
+    echo "   ${MODEL_PATH} --port 6073"
     echo "And keep the terminal window open while using Promptyly."
 fi
 
 echo ""
-echo "✅ Installed successfully to \${INSTALL_PATH}"
+echo "✅ Installed successfully to ${INSTALL_PATH}"
 echo ""
 echo "🚀 Next steps:"
-if [ "\${OS_NAME}" != "android" ] || [ -z "\${PREFIX}" ]; then
+if [ "${OS_NAME}" != "android" ] || [ -z "${PREFIX}" ]; then
     echo "1. Add installation directory to your PATH if it is not already:"
-    echo "   export PATH=\"\\\$HOME/.local/bin:\\\$PATH\""
-    if [ "\$CHOICE" != "2" ] && [ "\$CHOICE" != "1" ]; then
+    echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
+    if [ "$CHOICE" != "2" ] && [ "$CHOICE" != "1" ]; then
         echo "2. Set up your AI configuration:"
         echo "   promptyly config setup"
     fi
 else
-    if [ "\$CHOICE" != "2" ] && [ "\$CHOICE" != "1" ]; then
+    if [ "$CHOICE" != "2" ] && [ "$CHOICE" != "1" ]; then
         echo "1. Set up your AI configuration:"
         echo "   promptyly config setup"
     fi
-fi
-`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
+fi`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
 
 	w.Header().Set("Content-Type", "text/x-sh")
 	_, _ = w.Write([]byte(script))
@@ -1183,15 +1247,15 @@ if ($choice -eq "1") {
 
     # Configure CLI to use this llamafile
     & $installPath config set default_provider "lmstudio"
-    & $installPath config set lmstudio_url "http://localhost:8080/v1"
+    & $installPath config set lmstudio_url "http://localhost:6073/v1"
     & $installPath config set lmstudio_model "qwen2.5-coder-1.5b-instruct"
 
     Write-Host ""
     Write-Host "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to $modelPath" -ForegroundColor Green
-    Write-Host "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:8080/v1" -ForegroundColor Green
+    Write-Host "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:6073/v1" -ForegroundColor Green
     Write-Host ""
     Write-Host "💡 To run your local model, execute:" -ForegroundColor Cyan
-    Write-Host '   & "$modelPath"' -ForegroundColor Cyan
+    Write-Host '   & "$modelPath" --port 6073' -ForegroundColor Cyan
     Write-Host "And keep the terminal window open while using Promptyly." -ForegroundColor Cyan
 }
 
@@ -1204,6 +1268,27 @@ if ($userPath -notlike "*$installDir*") {
     [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
     Write-Host "✏️ Added $installDir to User PATH environment variable." -ForegroundColor Yellow
     Write-Host "👉 Please restart your terminal/PowerShell for changes to take effect." -ForegroundColor Yellow
+}
+
+# Setup Scheduled Task on Windows for autostart
+Write-Host "⚙️ Setting up Windows Scheduled Task for Promptyly daemon..." -ForegroundColor Yellow
+try {
+    $taskName = "PromptylyDaemon"
+    $action = New-ScheduledTaskAction -Execute "$installPath" -Argument "serve"
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
+    
+    # Check if task already exists and unregister it
+    Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
+    
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+    
+    # Start the task now
+    Start-ScheduledTask -TaskName $taskName
+    Write-Host "✓ Windows Scheduled Task registered and started successfully!" -ForegroundColor Green
+} catch {
+    Write-Warning "⚠️ Failed to configure Scheduled Task: $_. You can run the daemon manually using: promptyly serve"
 }
 
 Write-Host ""
@@ -1229,7 +1314,7 @@ func (s *Server) handleAdminPanel(w http.ResponseWriter, r *http.Request) {
 
 	users := s.store.ListUsers()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(RenderAdminPanel(users, currentUser)))
+	_, _ = w.Write([]byte(RenderAdminPanel(users, currentUser, s.store.GetConfig())))
 }
 
 func (s *Server) apiAdminApproveUser(w http.ResponseWriter, r *http.Request) {
@@ -1289,6 +1374,40 @@ func (s *Server) apiAdminRejectUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.RejectUser(req.Username); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+	})
+}
+
+func (s *Server) apiAdminUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getLoggedInUser(r)
+	if currentUser == nil || !currentUser.IsAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ServerConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.UpdateConfig(req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{

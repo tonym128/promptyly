@@ -47,6 +47,8 @@ func NewOpenAIClient(cfg config.ProviderConfig, providerKey string) *OpenAIClien
 			cfg.URL = "http://localhost:11434"
 		} else if providerKey == "lmstudio" {
 			cfg.URL = "http://localhost:1234/v1"
+		} else if providerKey == "llamafile" {
+			cfg.URL = "http://localhost:6073/v1"
 		}
 	}
 	if cfg.Model == "" {
@@ -54,6 +56,8 @@ func NewOpenAIClient(cfg config.ProviderConfig, providerKey string) *OpenAIClien
 			cfg.Model = "llama3"
 		} else if providerKey == "lmstudio" {
 			cfg.Model = "meta-llama-3-8b-instruct"
+		} else if providerKey == "llamafile" {
+			cfg.Model = "qwen2.5-coder-1.5b-instruct"
 		}
 	}
 	return &OpenAIClient{Config: cfg, ProviderKey: providerKey}

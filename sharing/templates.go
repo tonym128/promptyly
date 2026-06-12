@@ -13,6 +13,7 @@ func getHeader(title string, user *User) string {
 			adminLink = `<a href="/admin" class="nav-link" style="color: #a5b4fc; font-weight: 600;">Admin Panel</a>`
 		}
 		navLinks = fmt.Sprintf(`
+            <a href="/registry" class="nav-link">App Registry</a>
             <span class="user-greeting">Welcome, <strong>%s</strong></span>
             %s
             <a href="/profile" class="nav-link">Profile</a>
@@ -21,6 +22,7 @@ func getHeader(title string, user *User) string {
         `, html.EscapeString(user.Username), adminLink)
 	} else {
 		navLinks = `
+            <a href="/registry" class="nav-link">App Registry</a>
             <a href="/login" class="nav-link">Login</a>
             <a href="/register" class="nav-btn">Register</a>
         `
@@ -417,6 +419,179 @@ func RenderHome(apps []*App, searchQuery string, user *User) string {
     `, searchVal, len(apps), appsGrid)
 
 	return getHeader("Registry", user) + body + getFooter()
+}
+
+func RenderLandingPage(user *User) string {
+	rightCol := ""
+	if user != nil {
+		rightCol = fmt.Sprintf(`
+        <h2 style="font-size: 1.8rem; margin-bottom: 12px; text-align: center;">Welcome back, <span class="accent-text">%s</span>!</h2>
+        <p style="color: var(--text-secondary); text-align: center; line-height: 1.6; margin-bottom: 32px;">
+            You are currently authenticated and ready to manage your registry actions.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 14px; width: 100%%;">
+            <a href="/registry" class="btn-submit" style="padding: 14px; text-align: center; text-decoration: none;">Go to App Registry</a>
+            <a href="/upload" class="nav-btn" style="padding: 14px; text-align: center; background: transparent; border: 1px solid var(--border-color); box-shadow: none;">Upload New App</a>
+            <a href="/profile" class="nav-btn" style="padding: 14px; text-align: center; background: transparent; border: 1px solid var(--border-color); box-shadow: none;">My Profile</a>
+        </div>
+    `, html.EscapeString(user.Username))
+	} else {
+		rightCol = `
+        <div class="auth-tabs-header">
+            <button class="auth-tab-btn active" id="btn-tab-login" onclick="switchAuthTab('login')">Sign In</button>
+            <button class="auth-tab-btn" id="btn-tab-register" onclick="switchAuthTab('register')">Create Account</button>
+        </div>
+        
+        <div id="tab-login-form" style="display: block;">
+            <form action="/login" method="POST">
+                <div class="input-group">
+                    <label class="input-label">Username</label>
+                    <input type="text" name="username" required class="text-input" placeholder="tonym">
+                </div>
+                <div class="input-group" style="margin-bottom: 24px;">
+                    <label class="input-label">Password</label>
+                    <input type="password" name="password" required class="text-input" placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn-submit" style="width: 100%%; padding: 14px;">Sign In</button>
+            </form>
+        </div>
+        
+        <div id="tab-register-form" style="display: none;">
+            <form action="/register" method="POST">
+                <div class="input-group">
+                    <label class="input-label">Username</label>
+                    <input type="text" name="username" required class="text-input" placeholder="tonym">
+                </div>
+                <div class="input-group" style="margin-bottom: 24px;">
+                    <label class="input-label">Password</label>
+                    <input type="password" name="password" required class="text-input" placeholder="Min 6 characters">
+                </div>
+                <button type="submit" class="btn-submit" style="width: 100%%; padding: 14px;">Register Account</button>
+            </form>
+        </div>
+    `
+	}
+
+	body := fmt.Sprintf(`
+        <div class="hero-section" style="text-align: center; max-width: 800px; margin: 0 auto 40px auto; display: flex; flex-direction: column; gap: 16px;">
+            <h1 style="font-size: 3.2rem; letter-spacing: -0.03em; line-height: 1.15;">
+                Welcome to <span class="accent-text">Promptyly Share</span>
+            </h1>
+            <p style="color: var(--text-secondary); font-size: 1.25rem; line-height: 1.6;">
+                A centralized hub where developers and machine agents share, search, and run git-backed single-page web applications.
+            </p>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 36px; width: 100%%; align-items: stretch; margin-top: 10px;">
+            <!-- Left: Installation Instructions -->
+            <div class="card" style="flex: 1 1 500px; display: flex; flex-direction: column; gap: 24px;">
+                <h2 style="font-size: 1.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Install & Get Started
+                </h2>
+                
+                <div>
+                    <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">1. Linux / macOS installation</h3>
+                    <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
+                        <code id="cmd-sh">curl -fsSL <span class="origin-placeholder">http://localhost:6072</span>/install.sh | bash</code>
+                        <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-sh', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">2. Windows (PowerShell) installation</h3>
+                    <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
+                        <code id="cmd-ps1">irm <span class="origin-placeholder">http://localhost:6072</span>/install.ps1 | iex</code>
+                        <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-ps1', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 10px; background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 20px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                        💡 Run Local Models
+                    </h4>
+                    <ol style="margin-left: 20px; font-size: 0.9rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 8px;">
+                        <li>Configure model keys: <code>promptyly config setup</code> (Option 5 for CPU Llamafile)</li>
+                        <li>Start the local model: <code>~/.local/share/promptyly/models/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile --port 6073</code></li>
+                        <li>Run the client dev server: <code>promptyly serve</code> (Dashboard opens at <code>http://localhost:6071</code>)</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Right: Authentication / Greeting -->
+            <div class="card" style="flex: 1 1 400px; display: flex; flex-direction: column; justify-content: center; min-height: 400px; padding: 36px;">
+                %s
+            </div>
+        </div>
+
+        <script>
+            document.querySelectorAll('.origin-placeholder').forEach(el => {
+                el.textContent = window.location.origin;
+            });
+
+            function copyCommand(id, btn) {
+                const codeEl = document.getElementById(id);
+                if (!codeEl) return;
+                const text = codeEl.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                    }, 2000);
+                });
+            }
+
+            function switchAuthTab(tab) {
+                const loginForm = document.getElementById('tab-login-form');
+                const registerForm = document.getElementById('tab-register-form');
+                const loginTab = document.getElementById('btn-tab-login');
+                const registerTab = document.getElementById('btn-tab-register');
+                
+                if (tab === 'login') {
+                    loginForm.style.display = 'block';
+                    registerForm.style.display = 'none';
+                    loginTab.classList.add('active');
+                    registerTab.classList.remove('active');
+                } else {
+                    loginForm.style.display = 'none';
+                    registerForm.style.display = 'block';
+                    loginTab.classList.remove('active');
+                    registerTab.classList.add('active');
+                }
+            }
+        </script>
+        
+        <style>
+            .auth-tabs-header {
+                display: flex;
+                border-bottom: 1px solid var(--border-color);
+                margin-bottom: 24px;
+                gap: 12px;
+            }
+            .auth-tab-btn {
+                background: transparent;
+                border: none;
+                color: var(--text-secondary);
+                font-size: 1.1rem;
+                font-weight: 600;
+                padding: 10px 0;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                transition: all 0.2s;
+            }
+            .auth-tab-btn.active {
+                color: white;
+                border-bottom-color: var(--accent-color);
+            }
+        </style>
+    `, rightCol)
+
+	return getHeader("Home", user) + body + getFooter()
 }
 
 func RenderLogin(errorMsg string, user *User) string {
@@ -858,7 +1033,7 @@ func RenderProfile(user *User) string {
 	return getHeader("Developer Profile", user) + body + getFooter()
 }
 
-func RenderAdminPanel(users []*User, currentUser *User) string {
+func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig) string {
 	var rows string
 	for _, u := range users {
 		adminBadge := `<span style="background: rgba(255,255,255,0.05); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">User</span>`
@@ -894,10 +1069,61 @@ func RenderAdminPanel(users []*User, currentUser *User) string {
         `, html.EscapeString(u.Username), u.CreatedAt.Format("2006-01-02 15:04"), adminBadge, approvalBadge, actions)
 	}
 
+	chkRequireApproval := ""
+	if config.RequireAdminApproval {
+		chkRequireApproval = "checked"
+	}
+	chkRequireLogin := ""
+	if config.RequireLoginToView {
+		chkRequireLogin = "checked"
+	}
+	chkAllowSelfReg := ""
+	if config.AllowSelfRegistration {
+		chkAllowSelfReg = "checked"
+	}
+
 	body := fmt.Sprintf(`
         <div style="max-width: 900px; margin: 40px auto; padding: 0 24px; flex-grow: 1; width: 100%%;">
+            <!-- Registry Settings -->
+            <div class="card" style="padding: 36px; border-radius: 12px; margin-bottom: 32px;">
+                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Registry Settings</h2>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Configure access and security policies for this registry server.</p>
+                
+                <div style="display: flex; flex-direction: column; gap: 18px;">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <input type="checkbox" id="cfg-require-approval" %s style="margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer;">
+                        <div>
+                            <label for="cfg-require-approval" style="font-weight: 600; cursor: pointer; color: var(--text-primary);">Require Admin Approval</label>
+                            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">Newly registered accounts must be approved by an administrator before they can log in.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <input type="checkbox" id="cfg-require-login" %s style="margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer;">
+                        <div>
+                            <label for="cfg-require-login" style="font-weight: 600; cursor: pointer; color: var(--text-primary);">Require Login to View</label>
+                            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">Enforce authentication. Guests cannot view the app registry or homepage installation instructions.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <input type="checkbox" id="cfg-allow-selfreg" %s style="margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer;">
+                        <div>
+                            <label for="cfg-allow-selfreg" style="font-weight: 600; cursor: pointer; color: var(--text-primary);">Allow Self-Registration</label>
+                            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">Allow new users to sign up and create accounts using the main page form.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 28px; display: flex; align-items: center; gap: 16px;">
+                    <button class="btn-submit" onclick="saveSettings()" style="padding: 10px 24px; font-size: 0.9rem;">Save Settings</button>
+                    <span id="settings-status" style="font-size: 0.85rem; font-weight: 500; transition: opacity 0.3s; opacity: 0;"></span>
+                </div>
+            </div>
+
+            <!-- User Management -->
             <div class="card" style="padding: 36px; border-radius: 12px;">
-                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Admin Dashboard</h2>
+                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">User Management</h2>
                 <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 32px;">Manage registered developer accounts and pending approvals.</p>
 
                 <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border-color);">
@@ -920,6 +1146,43 @@ func RenderAdminPanel(users []*User, currentUser *User) string {
         </div>
 
         <script>
+            async function saveSettings() {
+                const requireApproval = document.getElementById('cfg-require-approval').checked;
+                const requireLogin = document.getElementById('cfg-require-login').checked;
+                const allowSelfReg = document.getElementById('cfg-allow-selfreg').checked;
+                const statusEl = document.getElementById('settings-status');
+
+                statusEl.textContent = "Saving...";
+                statusEl.style.color = "var(--text-secondary)";
+                statusEl.style.opacity = 1;
+
+                try {
+                    const resp = await fetch("/api/admin/config", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            require_admin_approval: requireApproval,
+                            require_login_to_view: requireLogin,
+                            allow_self_registration: allowSelfReg
+                        })
+                    });
+                    const res = await resp.json();
+                    if (res.success) {
+                        statusEl.textContent = "✓ Settings saved successfully!";
+                        statusEl.style.color = "var(--success-color)";
+                        setTimeout(() => {
+                            statusEl.style.opacity = 0;
+                        }, 3000);
+                    } else {
+                        statusEl.textContent = "Error: " + res.error;
+                        statusEl.style.color = "var(--error-color)";
+                    }
+                } catch (e) {
+                    statusEl.textContent = "Save failed: " + e;
+                    statusEl.style.color = "var(--error-color)";
+                }
+            }
+
             async function approveUser(username) {
                 if (!confirm("Are you sure you want to approve user " + username + "?")) return;
                 try {
@@ -958,7 +1221,7 @@ func RenderAdminPanel(users []*User, currentUser *User) string {
                 }
             }
         </script>
-    `, rows)
+    `, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, rows)
 
 	return getHeader("Admin Panel", currentUser) + body + getFooter()
 }

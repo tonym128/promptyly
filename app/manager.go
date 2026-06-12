@@ -522,7 +522,7 @@ func sendServerPublishRequest(port int, appName, description string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Promptyly-Token", token)
 
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: 60 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -920,7 +920,7 @@ func sendServerEditRequest(port int, appName, prompt string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Promptyly-Token", token)
 
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: 60 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -1212,7 +1212,7 @@ func downloadLlamafile(modelName string) error {
 
 	switch strings.ToLower(modelName) {
 	case "qwen2.5-coder-1.5b-instruct", "qwen", "qwen1.5b":
-		url = "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+		url = "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
 		filename = "qwen2.5-coder-1.5b-instruct-q4_k_m"
 	case "llama-3.2-1b-instruct", "llama", "llama1b":
 		url = "https://huggingface.co/Mozilla/Llama-3.2-1B-Instruct-llamafile/resolve/main/Llama-3.2-1B-Instruct.Q6_K.llamafile"

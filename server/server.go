@@ -1083,49 +1083,59 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                 <div class="settings-section">
                     <h3 class="settings-section-title">AI API Integration</h3>
                     <div class="form-group">
-                        <label class="form-label">Default LLM Provider</label>
-                        <select class="form-control" id="set-provider">
-                            <option value="gemini">Gemini (Google)</option>
-                            <option value="claude">Claude (Anthropic)</option>
-                            <option value="ollama">Ollama</option>
-                            <option value="lmstudio">OpenAI-compatible</option>
+                        <label class="form-label">Active Provider (Current Model)</label>
+                        <select class="form-control" id="set-active-provider">
+                            <!-- Dynamic options populated from providers list -->
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Gemini API Key</label>
-                        <input type="password" class="form-control" id="set-gemini-key" placeholder="Enter Gemini Key">
+                        <label class="form-label">Default Provider</label>
+                        <select class="form-control" id="set-default-provider">
+                            <!-- Dynamic options populated from providers list -->
+                        </select>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Gemini Model</label>
-                        <input type="text" class="form-control" id="set-gemini-model" placeholder="gemini-1.5-flash">
+
+                    <h4 style="margin: 24px 0 12px 0; color: var(--text-primary); font-size: 1rem;">Configured Providers</h4>
+                    <div id="providers-list-container" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+                        <!-- Rendered dynamically via JavaScript -->
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Claude API Key</label>
-                        <input type="password" class="form-control" id="set-claude-key" placeholder="Enter Claude Key">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Claude Model</label>
-                        <input type="text" class="form-control" id="set-claude-model" placeholder="claude-3-5-sonnet-20240620">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Ollama Endpoint URL</label>
-                        <input type="text" class="form-control" id="set-ollama-url" placeholder="http://localhost:11434">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Ollama Model</label>
-                        <input type="text" class="form-control" id="set-ollama-model" placeholder="llama3">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">OpenAI-compatible Endpoint URL</label>
-                        <input type="text" class="form-control" id="set-openai-url" placeholder="http://localhost:1234/v1">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">OpenAI-compatible Model</label>
-                        <input type="text" class="form-control" id="set-openai-model" placeholder="meta-llama-3-8b-instruct">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">OpenAI-compatible API Key (Optional)</label>
-                        <input type="password" class="form-control" id="set-openai-key" placeholder="Enter Key if required">
+
+                    <div class="provider-editor-card" id="provider-editor" style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; margin-top: 16px;">
+                        <h4 id="editor-title" style="margin-bottom: 16px; color: var(--text-primary); font-size: 0.95rem;">Add New Provider Configuration</h4>
+                        <input type="hidden" id="editor-original-id">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Unique Provider ID (Name)</label>
+                            <input type="text" class="form-control" id="editor-id" placeholder="e.g. my-ollama, openai-gpt4">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Provider Engine Type</label>
+                            <select class="form-control" id="editor-type" onchange="onEditorTypeChange()">
+                                <option value="gemini">Gemini (Google)</option>
+                                <option value="claude">Claude (Anthropic)</option>
+                                <option value="ollama">Ollama</option>
+                                <option value="llamafile">Llamafile</option>
+                                <option value="openai">OpenAI (Official)</option>
+                                <option value="openai-compatible">OpenAI-compatible / LM Studio</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="group-editor-url" style="display: none;">
+                            <label class="form-label">Endpoint URL</label>
+                            <input type="text" class="form-control" id="editor-url" placeholder="http://localhost:11434">
+                        </div>
+                        <div class="form-group" id="group-editor-key">
+                            <label class="form-label">API Key</label>
+                            <input type="password" class="form-control" id="editor-key" placeholder="Enter API Key">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Model Name</label>
+                            <input type="text" class="form-control" id="editor-model" placeholder="e.g. gemini-1.5-flash, gpt-4o">
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px; margin-top: 16px;">
+                            <button type="button" class="btn-primary" onclick="saveEditorProvider()" style="padding: 8px 16px; font-size: 0.85rem; font-weight: 600; width: auto;">Save Provider</button>
+                            <button type="button" class="btn-secondary" onclick="clearEditor()" style="padding: 8px 16px; font-size: 0.85rem; font-weight: 600; width: auto; background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);">Cancel</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1295,6 +1305,235 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    function escapeJS(str) {
+        if (!str) return '';
+        return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    function onEditorTypeChange() {
+        const type = document.getElementById('editor-type').value;
+        const urlGroup = document.getElementById('group-editor-url');
+        
+        if (type === 'ollama' || type === 'openai-compatible' || type === 'llamafile') {
+            urlGroup.style.display = 'block';
+        } else {
+            urlGroup.style.display = 'none';
+        }
+    }
+
+    function clearEditor() {
+        document.getElementById('editor-title').textContent = 'Add New Provider Configuration';
+        document.getElementById('editor-original-id').value = '';
+        
+        const idInput = document.getElementById('editor-id');
+        idInput.value = '';
+        idInput.disabled = false;
+        
+        document.getElementById('editor-type').value = 'gemini';
+        document.getElementById('editor-url').value = '';
+        document.getElementById('editor-key').value = '';
+        document.getElementById('editor-model').value = '';
+        
+        onEditorTypeChange();
+    }
+
+    function editProvider(id) {
+        const providers = activeConfig.providers || {};
+        const p = providers[id];
+        if (!p) return;
+        
+        document.getElementById('editor-title').textContent = 'Edit Provider Configuration: ' + id;
+        document.getElementById('editor-original-id').value = id;
+        
+        const idInput = document.getElementById('editor-id');
+        idInput.value = id;
+        idInput.disabled = true;
+        
+        document.getElementById('editor-type').value = p.type || id;
+        document.getElementById('editor-url').value = p.url || '';
+        document.getElementById('editor-key').value = p.api_key || '';
+        document.getElementById('editor-model').value = p.model || '';
+        
+        onEditorTypeChange();
+        
+        document.getElementById('provider-editor').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function deleteProvider(id) {
+        if (!confirm('Are you sure you want to delete the provider config "' + id + '"?')) {
+            return;
+        }
+        
+        if (activeConfig.providers && activeConfig.providers[id]) {
+            delete activeConfig.providers[id];
+        }
+        
+        if (activeConfig.active_provider === id) {
+            const keys = Object.keys(activeConfig.providers);
+            activeConfig.active_provider = keys.length > 0 ? keys[0] : '';
+        }
+        if (activeConfig.default_provider === id) {
+            const keys = Object.keys(activeConfig.providers);
+            activeConfig.default_provider = keys.length > 0 ? keys[0] : '';
+        }
+        
+        renderProvidersList();
+        
+        if (document.getElementById('editor-original-id').value === id) {
+            clearEditor();
+        }
+    }
+
+    function saveEditorProvider() {
+        const originalId = document.getElementById('editor-original-id').value;
+        const idInput = document.getElementById('editor-id');
+        const id = idInput.value.trim();
+        const type = document.getElementById('editor-type').value;
+        const url = document.getElementById('editor-url').value.trim();
+        const key = document.getElementById('editor-key').value.trim();
+        const model = document.getElementById('editor-model').value.trim();
+        
+        if (!id) {
+            alert('Provider ID is required.');
+            return;
+        }
+        
+        const idRegex = /^[a-zA-Z0-9-_]+$/;
+        if (!idRegex.test(id)) {
+            alert('Provider ID must only contain alphanumeric characters, hyphens, and underscores.');
+            return;
+        }
+        
+        if (!activeConfig.providers) {
+            activeConfig.providers = {};
+        }
+        
+        if (!originalId && activeConfig.providers[id]) {
+            alert('A provider with ID "' + id + '" already exists.');
+            return;
+        }
+        
+        const pConfig = {
+            type: type,
+            api_key: key,
+            url: url,
+            model: model
+        };
+        
+        activeConfig.providers[id] = pConfig;
+        
+        if (originalId && originalId !== id) {
+            delete activeConfig.providers[originalId];
+            if (activeConfig.active_provider === originalId) {
+                activeConfig.active_provider = id;
+            }
+            if (activeConfig.default_provider === originalId) {
+                activeConfig.default_provider = id;
+            }
+        }
+        
+        if (!activeConfig.active_provider) {
+            activeConfig.active_provider = id;
+        }
+        if (!activeConfig.default_provider) {
+            activeConfig.default_provider = id;
+        }
+        
+        renderProvidersList();
+        clearEditor();
+    }
+
+    function renderProvidersList() {
+        const listContainer = document.getElementById('providers-list-container');
+        const activeSel = document.getElementById('set-active-provider');
+        const defaultSel = document.getElementById('set-default-provider');
+        
+        if (!listContainer || !activeSel || !defaultSel) return;
+        
+        listContainer.innerHTML = '';
+        activeSel.innerHTML = '';
+        defaultSel.innerHTML = '';
+        
+        const providers = activeConfig.providers || {};
+        const providerIds = Object.keys(providers).sort();
+        
+        if (providerIds.length === 0) {
+            listContainer.innerHTML = '<div style="color: var(--text-muted); font-style: italic;">No providers configured. Add one below.</div>';
+            
+            const opt1 = document.createElement('option');
+            opt1.value = '';
+            opt1.textContent = '-- No Providers Configured --';
+            activeSel.appendChild(opt1);
+            
+            const opt2 = document.createElement('option');
+            opt2.value = '';
+            opt2.textContent = '-- No Providers Configured --';
+            defaultSel.appendChild(opt2);
+            return;
+        }
+        
+        providerIds.forEach(id => {
+            const p = providers[id];
+            const pType = p.type || id;
+            const isDefault = activeConfig.default_provider === id;
+            const isActive = activeConfig.active_provider === id;
+            
+            const optActive = document.createElement('option');
+            optActive.value = id;
+            optActive.textContent = id + ' (' + pType + ' - ' + (p.model || 'default') + ')';
+            if (isActive) optActive.selected = true;
+            activeSel.appendChild(optActive);
+            
+            const optDefault = document.createElement('option');
+            optDefault.value = id;
+            optDefault.textContent = id + ' (' + pType + ' - ' + (p.model || 'default') + ')';
+            if (isDefault) optDefault.selected = true;
+            defaultSel.appendChild(optDefault);
+            
+            const card = document.createElement('div');
+            card.style.background = 'rgba(255, 255, 255, 0.02)';
+            card.style.border = '1px solid var(--border-color)';
+            card.style.borderRadius = '8px';
+            card.style.padding = '16px';
+            card.style.display = 'flex';
+            card.style.justifyContent = 'space-between';
+            card.style.alignItems = 'center';
+            card.style.gap = '16px';
+            
+            let badges = '';
+            if (isActive) {
+                badges += '<span class="card-badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; margin-right: 6px;">Active</span>';
+            }
+            if (isDefault) {
+                badges += '<span class="card-badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">Default</span>';
+            }
+            
+            let detailsHtml = '<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px;">';
+            detailsHtml += '<strong>Engine:</strong> ' + escapeHTML(pType);
+            if (p.model) {
+                detailsHtml += ' &bull; <strong>Model:</strong> ' + escapeHTML(p.model);
+            }
+            if (p.url) {
+                detailsHtml += ' &bull; <strong>URL:</strong> ' + escapeHTML(p.url);
+            }
+            detailsHtml += '</div>';
+            
+            card.innerHTML = '<div>' +
+                '<div style="display: flex; align-items: center; gap: 8px;">' +
+                    '<strong style="color: var(--text-primary); font-size: 0.95rem;">' + escapeHTML(id) + '</strong>' +
+                    badges +
+                '</div>' +
+                detailsHtml +
+            '</div>' +
+            '<div style="display: flex; gap: 8px;">' +
+                '<button type="button" class="tool-btn" style="padding: 6px 10px; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 4px;" onclick="editProvider(\'' + escapeJS(id) + '\')">Edit</button>' +
+                '<button type="button" class="tool-btn delete" style="padding: 6px 10px; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 4px;" onclick="deleteProvider(\'' + escapeJS(id) + '\')">Delete</button>' +
+            '</div>';
+            
+            listContainer.appendChild(card);
+        });
+    }
+
     async function loadSettings() {
         try {
             const res = await fetch('/api/config', {
@@ -1304,28 +1543,13 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             activeConfig = await res.json();
             checkRegistryVersion();
 
-            document.getElementById('set-provider').value = activeConfig.default_provider || 'gemini';
             document.getElementById('set-apps-dir').value = activeConfig.apps_dir || '';
             document.getElementById('set-sharing-url').value = activeConfig.sharing_server_url || '';
             document.getElementById('set-sharing-token').value = activeConfig.sharing_token || '';
             document.getElementById('set-check-remote').checked = !!activeConfig.check_remote_first;
             
-            const gemini = activeConfig.providers.gemini || {};
-            document.getElementById('set-gemini-key').value = gemini.api_key || '';
-            document.getElementById('set-gemini-model').value = gemini.model || '';
-
-            const claude = activeConfig.providers.claude || {};
-            document.getElementById('set-claude-key').value = claude.api_key || '';
-            document.getElementById('set-claude-model').value = claude.model || '';
-
-            const ollama = activeConfig.providers.ollama || {};
-            document.getElementById('set-ollama-url').value = ollama.url || '';
-            document.getElementById('set-ollama-model').value = ollama.model || '';
-
-            const lmstudio = activeConfig.providers.lmstudio || {};
-            document.getElementById('set-openai-url').value = lmstudio.url || '';
-            document.getElementById('set-openai-model').value = lmstudio.model || '';
-            document.getElementById('set-openai-key').value = lmstudio.api_key || '';
+            renderProvidersList();
+            clearEditor();
         } catch (err) {
             console.error('Failed to load daemon config: ', err);
         }
@@ -1334,32 +1558,12 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
     async function saveSettings() {
         if (!activeConfig) return;
 
-        activeConfig.default_provider = document.getElementById('set-provider').value;
+        activeConfig.active_provider = document.getElementById('set-active-provider').value;
+        activeConfig.default_provider = document.getElementById('set-default-provider').value;
         activeConfig.apps_dir = document.getElementById('set-apps-dir').value.trim();
         activeConfig.sharing_server_url = document.getElementById('set-sharing-url').value.trim();
         activeConfig.sharing_token = document.getElementById('set-sharing-token').value.trim();
         activeConfig.check_remote_first = document.getElementById('set-check-remote').checked;
-
-        activeConfig.providers.gemini = {
-            api_key: document.getElementById('set-gemini-key').value.trim(),
-            model: document.getElementById('set-gemini-model').value.trim()
-        };
-
-        activeConfig.providers.claude = {
-            api_key: document.getElementById('set-claude-key').value.trim(),
-            model: document.getElementById('set-claude-model').value.trim()
-        };
-
-        activeConfig.providers.ollama = {
-            url: document.getElementById('set-ollama-url').value.trim(),
-            model: document.getElementById('set-ollama-model').value.trim()
-        };
-
-        activeConfig.providers.lmstudio = {
-            url: document.getElementById('set-openai-url').value.trim(),
-            model: document.getElementById('set-openai-model').value.trim(),
-            api_key: document.getElementById('set-openai-key').value.trim()
-        };
 
         try {
             const res = await fetch('/api/config', {

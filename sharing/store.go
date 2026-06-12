@@ -38,12 +38,19 @@ type App struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type ServerConfig struct {
+	RequireAdminApproval  bool `json:"require_admin_approval"`
+	RequireLoginToView    bool `json:"require_login_to_view"`
+	AllowSelfRegistration bool `json:"allow_self_registration"`
+}
+
 type Store struct {
 	mu       sync.RWMutex
 	filePath string
-	Users    map[string]*User `json:"users"`  // username -> User
+	Users    map[string]*User  `json:"users"`  // username -> User
 	Tokens   map[string]string `json:"tokens"` // token -> username
-	Apps     map[string]*App  `json:"apps"`   // id -> App
+	Apps     map[string]*App   `json:"apps"`   // id -> App
+	Config   ServerConfig      `json:"config"`
 }
 
 func NewStore(filePath string) (*Store, error) {
@@ -70,6 +77,10 @@ func (s *Store) load() error {
 		if err := os.MkdirAll(filepath.Dir(s.filePath), 0755); err != nil {
 			return err
 		}
+		// Initialize default config from env
+		s.Config.RequireAdminApproval = os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
+		s.Config.RequireLoginToView = os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
+		s.Config.AllowSelfRegistration = os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
 		return s.saveLocked()
 	}
 
@@ -82,6 +93,7 @@ func (s *Store) load() error {
 		Users  map[string]*User  `json:"users"`
 		Tokens map[string]string `json:"tokens"`
 		Apps   map[string]*App   `json:"apps"`
+		Config *ServerConfig     `json:"config"`
 	}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
@@ -96,6 +108,14 @@ func (s *Store) load() error {
 	}
 	if temp.Apps != nil {
 		s.Apps = temp.Apps
+	}
+	if temp.Config != nil {
+		s.Config = *temp.Config
+	} else {
+		// Fallback/Initialize from environment variables if not present in file
+		s.Config.RequireAdminApproval = os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
+		s.Config.RequireLoginToView = os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
+		s.Config.AllowSelfRegistration = os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
 	}
 
 	return nil
@@ -148,8 +168,6 @@ func (s *Store) RegisterUser(username, password string) (*User, error) {
 	salt := generateRandomString(16)
 	token := generateRandomString(32)
 
-	requireApproval := os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
-
 	user := &User{
 		ID:           generateRandomString(8),
 		Username:     username,
@@ -157,7 +175,7 @@ func (s *Store) RegisterUser(username, password string) (*User, error) {
 		Salt:         salt,
 		Token:        token,
 		IsAdmin:      false,
-		IsApproved:   !requireApproval,
+		IsApproved:   !s.Config.RequireAdminApproval,
 		CreatedAt:    time.Now(),
 	}
 
@@ -465,5 +483,18 @@ func (s *Store) RejectUser(username string) error {
 			delete(s.Tokens, t)
 		}
 	}
+	return s.saveLocked()
+}
+
+func (s *Store) GetConfig() ServerConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Config
+}
+
+func (s *Store) UpdateConfig(config ServerConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Config = config
 	return s.saveLocked()
 }

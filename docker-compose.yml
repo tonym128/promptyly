@@ -1,23 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. Local developer daemon running on port 6071
-  promptyly-daemon:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: promptyly-daemon
-    network_mode: "host"
-    volumes:
-      # Persist configuration settings
-      - ${HOME}/.config/promptyly:/root/.config/promptyly
-      # Persist generated applications code
-      - ${HOME}/promptyly-apps:/root/promptyly-apps
-    environment:
-      - HOST=127.0.0.1
-    restart: unless-stopped
-
-  # 2. Sharing registry server running on port 6072
+  # 1. Sharing registry server running on port 6072
   promptyly-registry:
     build:
       context: .

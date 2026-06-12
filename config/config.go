@@ -15,6 +15,7 @@ import (
 )
 
 type ProviderConfig struct {
+	Type   string   `json:"type,omitempty"`
 	APIKey string   `json:"api_key,omitempty"`
 	URL    string   `json:"url,omitempty"`
 	Model  string   `json:"model,omitempty"`
@@ -23,6 +24,7 @@ type ProviderConfig struct {
 
 type Config struct {
 	DefaultProvider  string                    `json:"default_provider"`
+	ActiveProvider   string                    `json:"active_provider"`
 	Providers        map[string]ProviderConfig `json:"providers"`
 	AppsDir          string                    `json:"apps_dir"`
 	Apps             map[string]string         `json:"apps"`    // AppName -> DirectoryPath
@@ -111,7 +113,7 @@ func LoadConfig() (*Config, error) {
 				Models: []string{"meta-llama-3-8b-instruct", "qwen2.5-coder-1.5b-instruct"},
 			},
 			"llamafile": {
-				URL:    "http://localhost:8080/v1",
+				URL:    "http://localhost:6073/v1",
 				Model:  "qwen2.5-coder-1.5b-instruct",
 				Models: []string{"qwen2.5-coder-1.5b-instruct", "llama-3.2-1b-instruct"},
 			},
@@ -171,8 +173,13 @@ func LoadConfig() (*Config, error) {
 	}
 	if loadedConfig.AppsDir != "" {
 		cfg.AppsDir = loadedConfig.AppsDir
-		if _, err := os.Stat(cfg.AppsDir); os.IsNotExist(err) {
-			if _, err := os.Stat("/root/promptyly-apps"); err == nil {
+		if strings.HasPrefix(cfg.AppsDir, "~/") {
+			cfg.AppsDir = filepath.Join(home, cfg.AppsDir[2:])
+		}
+		if cfg.AppsDir == "/root/promptyly-apps" && home != "/root" {
+			cfg.AppsDir = filepath.Join(home, "promptyly-apps")
+		} else if _, err := os.Stat(cfg.AppsDir); os.IsNotExist(err) {
+			if _, err := os.Stat("/root/promptyly-apps"); err == nil && home == "/root" {
 				cfg.AppsDir = "/root/promptyly-apps"
 			}
 		}
@@ -197,6 +204,9 @@ func LoadConfig() (*Config, error) {
 	cfg.CheckRemoteFirst = loadedConfig.CheckRemoteFirst
 	for k, v := range loadedConfig.Providers {
 		cfgV := cfg.Providers[k]
+		if v.Type != "" {
+			cfgV.Type = v.Type
+		}
 		if v.APIKey != "" {
 			cfgV.APIKey = v.APIKey
 		}
@@ -263,7 +273,10 @@ func SaveConfig(cfg *Config) error {
 }
 
 func (cfg *Config) GetActiveProvider() (string, ProviderConfig) {
-	prov := cfg.DefaultProvider
+	prov := cfg.ActiveProvider
+	if prov == "" {
+		prov = cfg.DefaultProvider
+	}
 	if prov == "" {
 		prov = "gemini"
 	}

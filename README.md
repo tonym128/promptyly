@@ -227,15 +227,15 @@ To load it in your browser:
 
 ---
 
-## 🛠️ Docker & Startup Scripts
+## 🛠️ Daemon & Docker Services
 
 To make Promptyly easy to launch and run, the following utilities and environments are provided:
 
 1. **One-Command Startup Scripts**:
-   - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server, and open the Hub dashboard Web UI in your default browser.
-2. **Docker Compose Stacks**:
-   - **Default Stack** (relies on local host LLM): Run `docker compose up -d` using **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)**.
-   - **Full Stack** (includes containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**.
+   - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server locally, and open the Hub dashboard Web UI in your default browser.
+2. **Docker Compose Stacks (Sharing Registry & Services)**:
+   - **Default Stack** (runs the Sharing Registry server): Run `docker compose up -d` using **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)**.
+   - **Full Stack** (includes registry + containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**.
    
    #### Prerequisite: Directory Permissions
    Before starting Docker, ensure the sharing data folder is writable by the container:
@@ -244,7 +244,7 @@ To make Promptyly easy to launch and run, the following utilities and environmen
    ```
 
    #### Local LLM Loopback Access (LM Studio & Ollama)
-   Since the `promptyly-daemon` container runs in **host network mode** (`network_mode: "host"`), it shares your host network namespace. This allows it to connect directly to local LLM engines running on the host (for the default stack) or the containerized Ollama service (on port `11434` for the full stack):
+   Since the `promptyly` daemon runs locally as a native host binary, it can connect directly to local LLM engines running on the host (like LM Studio) or the containerized Ollama service:
    - **OpenAI-compatible / LM Studio Endpoint**: `http://127.0.0.1:1234/v1`
    - **Ollama Endpoint (DeepSeek Coder 1.3B)**: `http://127.0.0.1:11434`
 

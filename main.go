@@ -699,7 +699,7 @@ func handleConfigSetup(cfg *config.Config) {
 		}
 		cfg.DefaultProvider = "lmstudio"
 		pCfg := cfg.Providers["lmstudio"]
-		pCfg.URL = "http://localhost:8080/v1"
+		pCfg.URL = "http://localhost:6073/v1"
 		pCfg.Model = "qwen2.5-coder-1.5b-instruct"
 		cfg.Providers["lmstudio"] = pCfg
 		if err := config.SaveConfig(cfg); err != nil {
@@ -712,9 +712,9 @@ func handleConfigSetup(cfg *config.Config) {
 			}
 			modelPath := filepath.Join(home, ".local", "share", "promptyly", "models", "qwen2.5-coder-1.5b-instruct-q4_k_m"+ext)
 			fmt.Println("\n✅ Setup complete! Settings saved.")
-			fmt.Println("🤖 Default provider configured to Local Llamafile at http://localhost:8080/v1")
+			fmt.Println("🤖 Default provider configured to Local Llamafile at http://localhost:6073/v1")
 			fmt.Println("\n💡 To run your local model, execute:")
-			fmt.Printf("   %s\n", modelPath)
+			fmt.Printf("   %s --port 6073\n", modelPath)
 			fmt.Println("And keep the terminal window open while using Promptyly.")
 		}
 		return
@@ -838,7 +838,7 @@ func downloadAndSetupLlamafile(cfg *config.Config) error {
 		return nil
 	}
 
-	url := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	url := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
 	sourceText := "from Hugging Face"
 	if cfg != nil && cfg.SharingServerURL != "" {
 		checkURL := fmt.Sprintf("%s/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile", strings.TrimSuffix(cfg.SharingServerURL, "/"))
@@ -1106,7 +1106,7 @@ func sendServerRequest(port int, method, path string, body []byte) ([]byte, erro
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Promptyly-Token", token)
 
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: 60 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -1354,7 +1354,7 @@ func sendServerStreamRequest(port int, method, path string, body []byte, onChunk
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Promptyly-Token", token)
 
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: 60 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
