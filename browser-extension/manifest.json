@@ -12,7 +12,8 @@
     "http://127.0.0.1:6071/*",
     "http://localhost:6072/*",
     "http://127.0.0.1:6072/*",
-    "https://*.ngrok-free.dev/*"
+    "https://*.ngrok-free.dev/*",
+    "https://*.trycloudflare.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

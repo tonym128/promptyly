@@ -18,18 +18,24 @@ services:
       - DATA_DIR=/app/data
     restart: unless-stopped
 
-  # 3. Registry tunnel (ngrok) for publishing/sharing remotely
+  # 2. Registry tunnel (Cloudflare Tunnel) for publishing/sharing remotely
   registry-tunnel:
-    image: ngrok/ngrok:latest
+    build:
+      context: .
+      dockerfile: sharing/Dockerfile.tunnel
     container_name: promptyly-share-tunnel
     restart: unless-stopped
-    ports:
-      - "4040:4040"
     environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    entrypoint: /bin/sh
     command:
-      - "http"
-      - "promptyly-registry:6072"
+      - -c
+      - |
+        if [ -n "$$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+          exec cloudflared tunnel --no-autoupdate run --token "$$CLOUDFLARE_TUNNEL_TOKEN"
+        else
+          exec cloudflared tunnel --no-autoupdate --url http://promptyly-registry:6072
+        fi
     depends_on:
       - promptyly-registry
 

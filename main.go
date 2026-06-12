@@ -736,69 +736,120 @@ func handleConfigSetup(cfg *config.Config) {
 
 	switch provider {
 	case "gemini":
-		fmt.Print("Enter Gemini API Key: ")
+		defaultKey := pCfg.APIKey
+		if defaultKey != "" {
+			fmt.Printf("Enter Gemini API Key [default: %s]: ", maskKey(defaultKey))
+		} else {
+			fmt.Print("Enter Gemini API Key: ")
+		}
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.APIKey = val
 			}
 		}
-		fmt.Print("Enter Gemini Model [default: gemini-1.5-flash]: ")
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "gemini-1.5-flash"
+		}
+		fmt.Printf("Enter Gemini Model [default: %s]: ", defaultModel)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
 			}
 		}
 
 	case "claude":
-		fmt.Print("Enter Claude API Key: ")
+		defaultKey := pCfg.APIKey
+		if defaultKey != "" {
+			fmt.Printf("Enter Claude API Key [default: %s]: ", maskKey(defaultKey))
+		} else {
+			fmt.Print("Enter Claude API Key: ")
+		}
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.APIKey = val
 			}
 		}
-		fmt.Print("Enter Claude Model [default: claude-3-5-sonnet-20240620]: ")
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "claude-3-5-sonnet-20240620"
+		}
+		fmt.Printf("Enter Claude Model [default: %s]: ", defaultModel)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
 			}
 		}
 
 	case "ollama":
-		fmt.Print("Enter Ollama Endpoint URL [default: http://localhost:11434]: ")
+		defaultURL := pCfg.URL
+		if defaultURL == "" {
+			defaultURL = "http://localhost:11434"
+		}
+		fmt.Printf("Enter Ollama Endpoint URL [default: %s]: ", defaultURL)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.URL = val
+			} else {
+				pCfg.URL = defaultURL
 			}
 		}
-		fmt.Print("Enter Ollama Model [default: llama3]: ")
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "llama3"
+		}
+		fmt.Printf("Enter Ollama Model [default: %s]: ", defaultModel)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
 			}
 		}
 
 	case "lmstudio":
-		fmt.Print("Enter OpenAI-compatible Endpoint URL [default: http://localhost:1234/v1]: ")
+		defaultURL := pCfg.URL
+		if defaultURL == "" {
+			defaultURL = "http://localhost:1234/v1"
+		}
+		fmt.Printf("Enter OpenAI-compatible Endpoint URL [default: %s]: ", defaultURL)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.URL = val
+			} else {
+				pCfg.URL = defaultURL
 			}
 		}
-		fmt.Print("Enter OpenAI-compatible Model [default: meta-llama-3-8b-instruct]: ")
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "meta-llama-3-8b-instruct"
+		}
+		fmt.Printf("Enter OpenAI-compatible Model [default: %s]: ", defaultModel)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
 			}
 		}
-		fmt.Print("Enter OpenAI-compatible API Key (Optional): ")
+		defaultKey := pCfg.APIKey
+		if defaultKey != "" {
+			fmt.Printf("Enter OpenAI-compatible API Key (Optional) [default: %s]: ", maskKey(defaultKey))
+		} else {
+			fmt.Print("Enter OpenAI-compatible API Key (Optional): ")
+		}
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
@@ -814,6 +865,13 @@ func handleConfigSetup(cfg *config.Config) {
 	} else {
 		fmt.Println("\n✅ Setup complete! Settings saved.")
 	}
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "********"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
 }
 
 func downloadAndSetupLlamafile(cfg *config.Config) error {

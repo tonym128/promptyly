@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  promptyly-share:
+    build:
+      context: ..
+      dockerfile: sharing/Dockerfile
+    container_name: promptyly-share
+    ports:
+      - "6072:6072"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - PORT=6072
+      - DATA_DIR=/app/data
+
+  registry-tunnel:
+    build:
+      context: ..
+      dockerfile: sharing/Dockerfile.tunnel
+    container_name: promptyly-share-tunnel
+    restart: unless-stopped
+    environment:
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        if [ -n "$$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+          exec cloudflared tunnel --no-autoupdate run --token "$$CLOUDFLARE_TUNNEL_TOKEN"
+        else
+          exec cloudflared tunnel --no-autoupdate --url http://promptyly-share:6072
+        fi
+    depends_on:
+      - promptyly-share

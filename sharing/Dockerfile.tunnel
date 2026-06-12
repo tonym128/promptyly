@@ -1,0 +1,4 @@
+FROM cloudflare/cloudflared:latest AS source
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+COPY --from=source /usr/local/bin/cloudflared /usr/local/bin/cloudflared
