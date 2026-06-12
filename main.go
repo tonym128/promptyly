@@ -513,6 +513,9 @@ func main() {
 		}
 		fmt.Println("Successfully unregistered prompt:// URL scheme handler.")
 
+	case "uninstall":
+		handleUninstall(cfg)
+
 	case "handle":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: promptyly handle \"<prompt-url>\"")
@@ -552,6 +555,7 @@ Commands:
   download <app-id>       Downloads and imports an app from the sharing server.
   register                Registers the prompt:// URL scheme for browser-level deep links.
   unregister              Unregisters the prompt:// URL scheme from the operating system.
+  uninstall               Stops the daemon and fully removes Promptyly from the system.
   config setup            Interactive setup guide for API Keys and LLM providers.
   config set <key> <val>  Manually set configuration settings.
   config show             Show current configuration details.
@@ -1526,5 +1530,125 @@ func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
 	}
 
 	return finalResult.AppName, finalResult.AppPath, nil
+}
+
+func handleUninstall(cfg *config.Config) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	fmt.Println("\n--- Promptyly Uninstaller ---")
+	fmt.Println("This will remove the daemon background service, scheduler, URL scheme registry, and local binary.")
+	fmt.Println("You will also be asked if you want to remove configuration files and data directories.")
+	fmt.Println("--------------------------------------------------")
+
+	// 1. Unregister custom URL scheme handler
+	fmt.Println("⚙️ Unregistering custom protocol URL scheme...")
+	err := urlscheme.Unregister()
+	if err != nil {
+		fmt.Printf("⚠️ Failed to unregister URL scheme: %v\n", err)
+	} else {
+		fmt.Println("✓ Unregistered prompt:// URL scheme handler.")
+	}
+
+	// 2. Remove platform-specific daemon autostart service/task
+	fmt.Println("⚙️ Removing background services and schedulers...")
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if runtime.GOOS == "linux" {
+			// Stop and disable systemd user service
+			_ = exec.Command("systemctl", "--user", "stop", "promptyly.service").Run()
+			_ = exec.Command("systemctl", "--user", "disable", "promptyly.service").Run()
+			serviceFile := filepath.Join(home, ".config", "systemd/user/promptyly.service")
+			if _, err := os.Stat(serviceFile); err == nil {
+				_ = os.Remove(serviceFile)
+				fmt.Println("✓ Removed systemd user service file.")
+			}
+			_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+		} else if runtime.GOOS == "darwin" {
+			// Unload and remove launchd plist
+			plistFile := filepath.Join(home, "Library/LaunchAgents/com.promptyly.daemon.plist")
+			_ = exec.Command("launchctl", "unload", plistFile).Run()
+			if _, err := os.Stat(plistFile); err == nil {
+				_ = os.Remove(plistFile)
+				fmt.Println("✓ Removed launchd plist file.")
+			}
+		} else if runtime.GOOS == "windows" {
+			// Unregister Windows Scheduled Task
+			psCmd := "Get-ScheduledTask -TaskName 'PromptylyDaemon' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false"
+			_ = exec.Command("powershell", "-Command", psCmd).Run()
+			fmt.Println("✓ Removed Windows Scheduled Task.")
+
+			// Remove path from environment
+			userPath := os.Getenv("Path")
+			installDir := filepath.Join(home, ".local", "bin")
+			if strings.Contains(userPath, installDir) {
+				psPathCmd := fmt.Sprintf(`$userPath = [System.Environment]::GetEnvironmentVariable("Path", "User"); $installDir = '%s'; if ($userPath -like "*$installDir*") { $newUserPath = $userPath -replace [regex]::Escape($installDir), "" -replace ";+", ";" -replace "^;|;$", ""; [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User") }`, installDir)
+				_ = exec.Command("powershell", "-Command", psPathCmd).Run()
+				fmt.Println("✓ Removed install directory from User PATH.")
+			}
+		}
+	}
+
+	// 3. Ask to remove config folder
+	fmt.Print("\n❓ Do you want to delete configuration files (API keys, etc.) in ~/.config/promptyly? (y/N): ")
+	if scanner.Scan() {
+		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if ans == "y" || ans == "yes" {
+			if configDir, err := config.GetConfigDir(); err == nil {
+				_ = os.RemoveAll(configDir)
+				fmt.Println("✓ Configuration directory removed.")
+			}
+		}
+	}
+
+	// 4. Ask to remove local apps/data directory
+	fmt.Print("❓ Do you want to delete all downloaded and generated web apps in ~/promptyly-apps? (y/N): ")
+	if scanner.Scan() {
+		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if ans == "y" || ans == "yes" {
+			if cfg.AppsDir != "" {
+				_ = os.RemoveAll(cfg.AppsDir)
+				fmt.Printf("✓ Data directory '%s' removed.\n", cfg.AppsDir)
+			} else if home != "" {
+				appsDir := filepath.Join(home, "promptyly-apps")
+				_ = os.RemoveAll(appsDir)
+				fmt.Printf("✓ Data directory '%s' removed.\n", appsDir)
+			}
+		}
+	}
+
+	// 5. Ask to remove llamafile models
+	fmt.Print("❓ Do you want to delete downloaded local llamafile models in ~/.local/share/promptyly? (y/N): ")
+	if scanner.Scan() {
+		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if ans == "y" || ans == "yes" {
+			if home != "" {
+				modelsDir := filepath.Join(home, ".local", "share", "promptyly")
+				_ = os.RemoveAll(modelsDir)
+				fmt.Println("✓ Local model files removed.")
+			}
+		}
+	}
+
+	// 6. Alert user about deleting binary
+	fmt.Println("\n--------------------------------------------------")
+	fmt.Println("🎉 Promptyly environment has been cleaned up.")
+	binaryName := "promptyly"
+	if runtime.GOOS == "windows" {
+		binaryName = "promptyly.exe"
+	}
+	installBinDir := filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "linux" && os.Getenv("PREFIX") != "" { // termux
+		installBinDir = filepath.Join(os.Getenv("PREFIX"), "bin")
+	}
+	binaryPath := filepath.Join(installBinDir, binaryName)
+
+	if runtime.GOOS == "windows" {
+		fmt.Printf("👉 The binary is currently locked. To complete uninstallation, delete it manually:\n")
+		fmt.Printf("   Remove-Item -Path '%s' -Force\n\n", binaryPath)
+	} else {
+		_ = os.Remove(binaryPath)
+		fmt.Println("✓ Deleted promptyly executable.")
+		fmt.Println("👋 Uninstallation complete!")
+	}
 }
 

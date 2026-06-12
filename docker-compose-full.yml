@@ -16,6 +16,8 @@ services:
     environment:
       - PORT=6072
       - DATA_DIR=/app/data
+    env_file:
+      - ./sharing/.env
     restart: unless-stopped
 
   # 2. Registry tunnel (Cloudflare Tunnel) for publishing/sharing remotely
@@ -25,8 +27,8 @@ services:
       dockerfile: sharing/Dockerfile.tunnel
     container_name: promptyly-share-tunnel
     restart: unless-stopped
-    environment:
-      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - ./sharing/.env
     entrypoint: /bin/sh
     command:
       - -c

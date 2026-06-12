@@ -138,9 +138,11 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// App static website serving
 	mux.HandleFunc("/apps/", wrap(s.handleServeApp))
 
-	// Installer script routes
+	// Installer and Uninstaller script routes
 	mux.HandleFunc("/install.sh", wrap(s.handleInstallSh))
 	mux.HandleFunc("/install.ps1", wrap(s.handleInstallPs1))
+	mux.HandleFunc("/uninstall.sh", wrap(s.handleUninstallSh))
+	mux.HandleFunc("/uninstall.ps1", wrap(s.handleUninstallPs1))
 
 	// Binary assets serving
 	binariesDir := filepath.Join(s.dataDir, "binaries")
@@ -1460,4 +1462,179 @@ func isVersionNewer(clientVer, serverVer string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Server) handleUninstallSh(w http.ResponseWriter, r *http.Request) {
+	script := `#!/bin/sh
+set -e
+
+echo "--- Promptyly Uninstaller (Unix/macOS) ---"
+
+# 1. Stop daemon if running
+echo "🔌 Stopping background daemon..."
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "promptyly serve" || true
+else
+    PID=$(ps aux | grep "[p]romptyly serve" | grep -v grep | awk '{print $2}')
+    if [ -n "$PID" ]; then
+        kill "$PID" || true
+    fi
+fi
+
+# 2. Run unregister using the local binary if it exists
+INSTALL_DIR="${HOME}/.local/bin"
+if [ -d "/data/data/com.termux" ] || [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+    if [ -n "${PREFIX}" ]; then
+        INSTALL_DIR="${PREFIX}/bin"
+    fi
+fi
+INSTALL_PATH="${INSTALL_DIR}/promptyly"
+
+if [ -f "${INSTALL_PATH}" ]; then
+    echo "⚙️ Unregistering custom protocol URL scheme..."
+    "${INSTALL_PATH}" unregister || true
+fi
+
+# 3. Remove systemd service
+if command -v systemctl >/dev/null 2>&1; then
+    echo "⚙️ Removing systemd user service..."
+    systemctl --user stop promptyly.service 2>/dev/null || true
+    systemctl --user disable promptyly.service 2>/dev/null || true
+    rm -f "${HOME}/.config/systemd/user/promptyly.service"
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
+
+# 4. Remove launchd plist (macOS)
+if [ "$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then
+    echo "⚙️ Removing launchd agent..."
+    launchctl unload "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist" 2>/dev/null || true
+    rm -f "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist"
+fi
+
+# 5. Delete binary
+if [ -f "${INSTALL_PATH}" ]; then
+    rm -f "${INSTALL_PATH}"
+    echo "✓ Deleted promptyly executable."
+fi
+
+# 6. Ask for configuration cleanup (Interactive)
+printf "\n❓ Do you want to delete configuration files (API keys, etc.) in ~/.config/promptyly? (y/N): "
+read CONF_ANS < /dev/tty
+if [ "$CONF_ANS" = "y" ] || [ "$CONF_ANS" = "Y" ] || [ "$CONF_ANS" = "yes" ]; then
+    rm -rf "${HOME}/.config/promptyly"
+    echo "✓ Configuration directory removed."
+fi
+
+# 7. Ask for data cleanup
+printf "❓ Do you want to delete all downloaded/generated web apps in ~/promptyly-apps? (y/N): "
+read DATA_ANS < /dev/tty
+if [ "$DATA_ANS" = "y" ] || [ "$DATA_ANS" = "Y" ] || [ "$DATA_ANS" = "yes" ]; then
+    rm -rf "${HOME}/promptyly-apps"
+    echo "✓ Data directory removed."
+fi
+
+# 8. Ask for llamafile models cleanup
+printf "❓ Do you want to delete downloaded local llamafile models in ~/.local/share/promptyly? (y/N): "
+read MODEL_ANS < /dev/tty
+if [ "$MODEL_ANS" = "y" ] || [ "$MODEL_ANS" = "Y" ] || [ "$MODEL_ANS" = "yes" ]; then
+    rm -rf "${HOME}/.local/share/promptyly"
+    echo "✓ Local models directory removed."
+fi
+
+echo ""
+echo "🎉 Promptyly has been successfully uninstalled from your system!"
+`
+	w.Header().Set("Content-Type", "text/x-sh")
+	_, _ = w.Write([]byte(script))
+}
+
+func (s *Server) handleUninstallPs1(w http.ResponseWriter, r *http.Request) {
+	script := `$ErrorActionPreference = "Stop"
+
+Write-Host "--- Promptyly Uninstaller (Windows) ---" -ForegroundColor Cyan
+
+# 1. Stop background daemon processes
+Write-Host "🔌 Stopping background daemon..." -ForegroundColor Yellow
+$process = Get-Process -Name "promptyly" -ErrorAction SilentlyContinue
+if ($process) {
+    Stop-Process -Name "promptyly" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+
+# 2. Run unregister using local binary if it exists
+$installDir = Join-Path $HOME ".local\bin"
+$installPath = Join-Path $installDir "promptyly.exe"
+
+if (Test-Path $installPath) {
+    Write-Host "⚙️ Unregistering custom protocol URL scheme..." -ForegroundColor Yellow
+    try {
+        & $installPath unregister
+    } catch {}
+}
+
+# 3. Stop and remove Scheduled Task
+Write-Host "⚙️ Removing Scheduled Task..." -ForegroundColor Yellow
+try {
+    $taskName = "PromptylyDaemon"
+    Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
+    Write-Host "✓ Removed Windows Scheduled Task." -ForegroundColor Green
+} catch {
+    Write-Warning "⚠️ Failed to remove Scheduled Task."
+}
+
+# 4. Remove installDir from User PATH environment variable
+$userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -like "*$installDir*") {
+    $newUserPath = $userPath -replace [regex]::Escape($installDir), "" -replace ";+", ";" -replace "^;|;$", ""
+    [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+    Write-Host "✓ Removed $installDir from User PATH." -ForegroundColor Yellow
+}
+
+# 5. Delete binary
+if (Test-Path $installPath) {
+    Start-Sleep -Milliseconds 500
+    try {
+        Remove-Item -Path $installPath -Force
+        Write-Host "✓ Deleted promptyly executable." -ForegroundColor Green
+    } catch {
+        Write-Warning "⚠️ Executable is locked. To complete uninstallation, delete it manually at: $installPath"
+    }
+}
+
+# 6. Ask for configuration cleanup (Interactive)
+Write-Host ""
+$confAns = Read-Host "❓ Do you want to delete configuration files (API keys, etc.) in ~/.config/promptyly? (y/N)"
+if ($confAns -eq "y" -or $confAns -eq "yes") {
+    $configDir = Join-Path $HOME ".config\promptyly"
+    if (Test-Path $configDir) {
+        Remove-Item -Path $configDir -Recurse -Force
+        Write-Host "✓ Configuration directory removed." -ForegroundColor Green
+    }
+}
+
+# 7. Ask for data cleanup
+$dataAns = Read-Host "❓ Do you want to delete all downloaded/generated web apps in ~/promptyly-apps? (y/N)"
+if ($dataAns -eq "y" -or $dataAns -eq "yes") {
+    $appsDir = Join-Path $HOME "promptyly-apps"
+    if (Test-Path $appsDir) {
+        Remove-Item -Path $appsDir -Recurse -Force
+        Write-Host "✓ Data directory removed." -ForegroundColor Green
+    }
+}
+
+# 8. Ask for llamafile models cleanup
+$modelAns = Read-Host "❓ Do you want to delete downloaded local llamafile models in ~/.local/share/promptyly? (y/N)"
+if ($modelAns -eq "y" -or $modelAns -eq "yes") {
+    $modelsDir = Join-Path $HOME ".local\share\promptyly"
+    if (Test-Path $modelsDir) {
+        Remove-Item -Path $modelsDir -Recurse -Force
+        Write-Host "✓ Local models directory removed." -ForegroundColor Green
+    }
+}
+
+Write-Host ""
+Write-Host "🎉 Promptyly has been successfully uninstalled from your system!" -ForegroundColor Green
+`
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte(script))
 }
