@@ -1068,7 +1068,7 @@ func RenderProfile(user *User) string {
 	return getHeader("Developer Profile", user) + body + getFooter()
 }
 
-func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig) string {
+func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, analytics []AnalyticsEvent) string {
 	var rows string
 	for _, u := range users {
 		adminBadge := `<span style="background: rgba(255,255,255,0.05); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">User</span>`
@@ -1104,6 +1104,42 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig) str
         `, html.EscapeString(u.Username), u.CreatedAt.Format("2006-01-02 15:04"), adminBadge, approvalBadge, actions)
 	}
 
+	var pageViews, linkDownloads, appViews, uploads, searches int
+	for _, e := range analytics {
+		switch e.Category {
+		case "page":
+			pageViews++
+		case "link":
+			linkDownloads++
+		case "app":
+			appViews++
+		case "upload":
+			uploads++
+		case "url":
+			searches++
+		}
+	}
+
+	var eventRows string
+	startIdx := len(analytics) - 1
+	count := 0
+	for i := startIdx; i >= 0 && count < 50; i-- {
+		e := analytics[i]
+		eventRows += fmt.Sprintf(`
+            <tr style="border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
+                <td style="padding: 10px 14px; font-family: 'JetBrains Mono', monospace; color: var(--text-muted);">%s</td>
+                <td style="padding: 10px 14px;"><span style="background: rgba(255,255,255,0.04); padding: 2px 6px; border-radius: 4px; font-weight: 600;">%s</span></td>
+                <td style="padding: 10px 14px; font-weight: 500;">%s</td>
+                <td style="padding: 10px 14px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="%s">%s</td>
+                <td style="padding: 10px 14px; color: var(--text-muted);">%s</td>
+            </tr>
+        `, e.Timestamp.Format("15:04:05"), html.EscapeString(e.Category), html.EscapeString(e.Action), html.EscapeString(e.Label), html.EscapeString(e.Label), html.EscapeString(e.IP))
+		count++
+	}
+	if eventRows == "" {
+		eventRows = `<tr><td colspan="5" style="padding: 20px; text-align: center; color: var(--text-muted);">No analytics recorded yet.</td></tr>`
+	}
+
 	chkRequireApproval := ""
 	if config.RequireAdminApproval {
 		chkRequireApproval = "checked"
@@ -1119,6 +1155,58 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig) str
 
 	body := fmt.Sprintf(`
         <div style="max-width: 900px; margin: 40px auto; padding: 0 24px; flex-grow: 1; width: 100%%;">
+            <!-- Analytics Dashboard -->
+            <div class="card" style="padding: 36px; border-radius: 12px; margin-bottom: 32px;">
+                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Analytics Dashboard</h2>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Real-time traffic and event tracking statistics on this registry.</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin-bottom: 32px;">
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; text-align: center;">
+                        <span style="font-size: 2rem; display: block; margin-bottom: 6px;">📄</span>
+                        <strong style="font-size: 1.5rem; color: #a5b4fc; display: block;">%d</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Page Views</span>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; text-align: center;">
+                        <span style="font-size: 2rem; display: block; margin-bottom: 6px;">🔗</span>
+                        <strong style="font-size: 1.5rem; color: #f43f5e; display: block;">%d</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Link Downloads</span>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; text-align: center;">
+                        <span style="font-size: 2rem; display: block; margin-bottom: 6px;">🤖</span>
+                        <strong style="font-size: 1.5rem; color: #10b981; display: block;">%d</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">App Events</span>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; text-align: center;">
+                        <span style="font-size: 2rem; display: block; margin-bottom: 6px;">📤</span>
+                        <strong style="font-size: 1.5rem; color: #fbbf24; display: block;">%d</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Uploaded Apps</span>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; text-align: center;">
+                        <span style="font-size: 2rem; display: block; margin-bottom: 6px;">🔍</span>
+                        <strong style="font-size: 1.5rem; color: #38bdf8; display: block;">%d</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Registry Queries</span>
+                    </div>
+                </div>
+
+                <h3 style="font-size: 1.2rem; margin-bottom: 16px;">Recent Event Logs (Last 50)</h3>
+                <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <table style="width: 100%%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02); color: var(--text-secondary);">
+                                <th style="padding: 10px 14px;">Time</th>
+                                <th style="padding: 10px 14px;">Category</th>
+                                <th style="padding: 10px 14px;">Action</th>
+                                <th style="padding: 10px 14px;">Label/Target</th>
+                                <th style="padding: 10px 14px;">IP Address</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            %s
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Registry Settings -->
             <div class="card" style="padding: 36px; border-radius: 12px; margin-bottom: 32px;">
                 <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Registry Settings</h2>
@@ -1256,7 +1344,7 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig) str
                 }
             }
         </script>
-    `, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, rows)
+    `, pageViews, linkDownloads, appViews, uploads, searches, eventRows, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, rows)
 
 	return getHeader("Admin Panel", currentUser) + body + getFooter()
 }

@@ -162,7 +162,14 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// Binary assets serving
 	binariesDir := filepath.Join(s.dataDir, "binaries")
-	mux.Handle("/binaries/", http.StripPrefix("/binaries/", http.FileServer(http.Dir(binariesDir))))
+	binaryHandler := http.StripPrefix("/binaries/", http.FileServer(http.Dir(binariesDir)))
+	mux.HandleFunc("/binaries/", wrap(func(w http.ResponseWriter, r *http.Request) {
+		filename := strings.TrimPrefix(r.URL.Path, "/binaries/")
+		if filename != "" {
+			s.trackEvent(r, "link", "download", "binary:"+filename)
+		}
+		binaryHandler.ServeHTTP(w, r)
+	}))
 }
 
 // handleHome renders the landing page.
@@ -172,6 +179,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.trackEvent(r, "page", "view", "home")
 	user := s.getLoggedInUser(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(RenderLandingPage(user)))
@@ -183,6 +191,7 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	var apps []*App
 
+	s.trackEvent(r, "page", "view", "registry")
 	if query != "" {
 		apps = s.store.SearchApps(query)
 	} else {
@@ -201,6 +210,7 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.trackEvent(r, "page", "view", "profile")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(RenderProfile(user)))
 }
@@ -388,6 +398,7 @@ func (s *Server) handleAppDetail(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/app/")
 	id = strings.Split(id, "/")[0] // Extract clean ID
 
+	s.trackEvent(r, "app", "view_details", id)
 	app, exists := s.store.GetApp(id)
 	if !exists {
 		http.NotFound(w, r)
@@ -506,6 +517,7 @@ func (s *Server) apiSearchApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query().Get("q")
+	s.trackEvent(r, "url", "search", query)
 	apps := s.store.SearchApps(query)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(apps)
@@ -592,6 +604,8 @@ func (s *Server) apiUploadApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.trackEvent(r, "upload", "publish", app.ID)
+
 	// Extract ZIP file to apps directory
 	destDir := filepath.Join(s.dataDir, "apps", app.ID)
 	if err := extractZip(zipPath, destDir); err != nil {
@@ -625,6 +639,7 @@ func (s *Server) apiDownloadApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.store.IncrementDownloads(id)
+	s.trackEvent(r, "app", "download", id)
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.zip", app.ID))
 	w.Header().Set("Content-Type", "application/zip")
@@ -661,6 +676,10 @@ func (s *Server) handleServeApp(w http.ResponseWriter, r *http.Request) {
 
 	relPath := "/" + strings.Join(parts[1:], "/")
 	appDir := filepath.Join(s.dataDir, "apps", appID)
+
+	if relPath == "/" || relPath == "/index.html" {
+		s.trackEvent(r, "app", "view", appID)
+	}
 
 	// Intercept dynamic persistence DB endpoint
 	if relPath == "/_promptyly/api/db" || relPath == "/_promptyly/api/db/" {
@@ -854,6 +873,7 @@ func extractZip(zipPath string, destDir string) error {
 }
 
 func (s *Server) handleInstallSh(w http.ResponseWriter, r *http.Request) {
+	s.trackEvent(r, "link", "download", "install.sh")
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -1165,6 +1185,7 @@ echo "--------------------------------------------------"`, scheme, host, scheme
 }
 
 func (s *Server) handleInstallPs1(w http.ResponseWriter, r *http.Request) {
+	s.trackEvent(r, "link", "download", "install.ps1")
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -1398,8 +1419,9 @@ func (s *Server) handleAdminPanel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	users := s.store.ListUsers()
+	analytics := s.store.GetAnalytics()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(RenderAdminPanel(users, currentUser, s.store.GetConfig())))
+	_, _ = w.Write([]byte(RenderAdminPanel(users, currentUser, s.store.GetConfig(), analytics)))
 }
 
 func (s *Server) apiAdminApproveUser(w http.ResponseWriter, r *http.Request) {
@@ -1548,6 +1570,7 @@ func isVersionNewer(clientVer, serverVer string) bool {
 }
 
 func (s *Server) handleUninstallSh(w http.ResponseWriter, r *http.Request) {
+	s.trackEvent(r, "link", "download", "uninstall.sh")
 	script := `#!/bin/sh
 set -e
 
@@ -1632,6 +1655,7 @@ echo "🎉 Promptyly has been successfully uninstalled from your system!"
 }
 
 func (s *Server) handleUninstallPs1(w http.ResponseWriter, r *http.Request) {
+	s.trackEvent(r, "link", "download", "uninstall.ps1")
 	script := `$ErrorActionPreference = "Stop"
 
 Write-Host "--- Promptyly Uninstaller (Windows) ---" -ForegroundColor Cyan
