@@ -1,0 +1,10 @@
+.git
+.github
+sharing/data
+dist
+desktop/node_modules
+desktop/dist
+promptyly
+sharing/sharing-server
+binaries
+*.log
