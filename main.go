@@ -718,7 +718,11 @@ func handleConfigSetup(cfg *config.Config) {
 			fmt.Println("\n✅ Setup complete! Settings saved.")
 			fmt.Println("🤖 Default provider configured to Local Llamafile at http://localhost:6073/v1")
 			fmt.Println("\n💡 To run your local model, execute:")
-			fmt.Printf("   %s --port 6073\n", modelPath)
+			if runtime.GOOS == "windows" {
+				fmt.Printf("   %s --port 6073\n", modelPath)
+			} else {
+				fmt.Printf("   sh %s --port 6073\n", modelPath)
+			}
 			fmt.Println("And keep the terminal window open while using Promptyly.")
 		}
 		return

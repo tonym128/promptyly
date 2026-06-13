@@ -483,42 +483,77 @@ func RenderLandingPage(user *User) string {
         </div>
 
         <div style="display: flex; flex-wrap: wrap; gap: 36px; width: 100%%; align-items: stretch; margin-top: 10px;">
-            <!-- Left: Installation Instructions -->
-            <div class="card" style="flex: 1 1 500px; display: flex; flex-direction: column; gap: 24px;">
-                <h2 style="font-size: 1.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; display: flex; align-items: center; gap: 10px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                    Install & Get Started
-                </h2>
-                
-                <div>
-                    <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">1. Linux / macOS installation</h3>
-                    <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
-                        <code id="cmd-sh">curl -fsSL <span class="origin-placeholder">http://localhost:6072</span>/install.sh | bash</code>
-                        <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-sh', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
+            <!-- Left Column: Installation & Uninstallation -->
+            <div style="flex: 1 1 500px; display: flex; flex-direction: column; gap: 24px;">
+                <!-- Install Card -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 24px;">
+                    <h2 style="font-size: 1.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                        Install & Get Started
+                    </h2>
+                    
+                    <div>
+                        <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">1. Linux / macOS installation</h3>
+                        <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
+                            <code id="cmd-sh">curl -fsSL <span class="origin-placeholder">http://localhost:6072</span>/install.sh | bash</code>
+                            <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-sh', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">2. Windows (PowerShell) installation</h3>
+                        <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
+                            <code id="cmd-ps1">irm <span class="origin-placeholder">http://localhost:6072</span>/install.ps1 | iex</code>
+                            <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-ps1', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 10px; background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 20px;">
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                            💡 Run Local Models
+                        </h4>
+                        <ol style="margin-left: 20px; font-size: 0.9rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 8px;">
+                            <li>Configure model keys: <code>promptyly config setup</code> (Option 5 for CPU Llamafile)</li>
+                            <li>Start the local model (Linux/macOS): <code>sh ~/.local/share/promptyly/models/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile --port 6073</code></li>
+                            <li>Start the local model (Windows): <code>~/.local/share/promptyly/models/qwen2.5-coder-1.5b-instruct-q4_k_m.exe --port 6073</code></li>
+                            <li>Run the client dev server: <code>promptyly serve</code> (Dashboard opens at <code>http://localhost:6071</code>)</li>
+                        </ol>
                     </div>
                 </div>
 
-                <div>
-                    <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: var(--text-primary);">2. Windows (PowerShell) installation</h3>
-                    <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 44px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; color: #a5b4fc;">
-                        <code id="cmd-ps1">irm <span class="origin-placeholder">http://localhost:6072</span>/install.ps1 | iex</code>
-                        <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-ps1', this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
+                <!-- Uninstall Card -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 20px;">
+                    <h2 style="font-size: 1.4rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; display: flex; align-items: center; gap: 10px; margin-bottom: 5px; color: #fda4af;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        Uninstall & Cleanup
+                    </h2>
+                    <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+                        To stop the background daemon and completely remove the service, scheduler registry, custom protocol handler, and binaries:
+                    </p>
+                    
+                    <div>
+                        <h3 style="font-size: 1.0rem; margin-bottom: 8px; color: var(--text-primary);">Linux / macOS uninstallation</h3>
+                        <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 44px 12px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto; color: #fda4af;">
+                            <code id="cmd-un-sh">curl -fsSL <span class="origin-placeholder">http://localhost:6072</span>/uninstall.sh | bash</code>
+                            <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-un-sh', this)" style="position: absolute; right: 12px; top: 10px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                <div style="margin-top: 10px; background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 20px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
-                        💡 Run Local Models
-                    </h4>
-                    <ol style="margin-left: 20px; font-size: 0.9rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 8px;">
-                        <li>Configure model keys: <code>promptyly config setup</code> (Option 5 for CPU Llamafile)</li>
-                        <li>Start the local model: <code>~/.local/share/promptyly/models/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile --port 6073</code></li>
-                        <li>Run the client dev server: <code>promptyly serve</code> (Dashboard opens at <code>http://localhost:6071</code>)</li>
-                    </ol>
+                    <div>
+                        <h3 style="font-size: 1.0rem; margin-bottom: 8px; color: var(--text-primary);">Windows (PowerShell) uninstallation</h3>
+                        <div style="position: relative; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 44px 12px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto; color: #fda4af;">
+                            <code id="cmd-un-ps1">irm <span class="origin-placeholder">http://localhost:6072</span>/uninstall.ps1 | iex</code>
+                            <button class="copy-btn" data-clipboard="" onclick="copyCommand('cmd-un-ps1', this)" style="position: absolute; right: 12px; top: 10px; background: transparent; border: none; color: var(--text-muted); cursor: pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

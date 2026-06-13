@@ -903,6 +903,25 @@ INSTALL_PATH="${INSTALL_DIR}/promptyly"
 echo "📥 Downloading Promptyly CLI (${OS_NAME}/${ARCH})..."
 echo "🔗 URL: ${DOWNLOAD_URL}"
 
+# Stop running daemon instances to release file locks
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user stop promptyly.service 2>/dev/null || true
+fi
+if [ "${OS_NAME}" = "darwin" ]; then
+    launchctl unload "${HOME}/Library/LaunchAgents/com.promptyly.daemon.plist" 2>/dev/null || true
+fi
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "promptyly serve" || true
+else
+    PID=$(ps aux | grep "[p]romptyly serve" | grep -v grep | awk '{print $2}')
+    if [ -n "$PID" ]; then
+        kill "$PID" || true
+    fi
+fi
+
+# Remove existing binary first to avoid "Text file busy" write errors
+rm -f "${INSTALL_PATH}"
+
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "${DOWNLOAD_URL}" -o "${INSTALL_PATH}"
 elif command -v wget >/dev/null 2>&1; then
@@ -1083,27 +1102,47 @@ elif [ "$CHOICE" = "2" ]; then
     echo "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:6073/v1"
     echo ""
     echo "💡 To run your local model, execute:"
-    echo "   ${MODEL_PATH} --port 6073"
+    echo "   sh ${MODEL_PATH} --port 6073"
     echo "And keep the terminal window open while using Promptyly."
 fi
 
 echo ""
 echo "✅ Installed successfully to ${INSTALL_PATH}"
 echo ""
-echo "🚀 Next steps:"
 if [ "${OS_NAME}" != "android" ] || [ -z "${PREFIX}" ]; then
-    echo "1. Add installation directory to your PATH if it is not already:"
+    echo "⚙️  PATH configuration:"
+    echo "   Ensure your PATH includes the installation directory:"
     echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
-    if [ "$CHOICE" != "2" ] && [ "$CHOICE" != "1" ]; then
-        echo "2. Set up your AI configuration:"
-        echo "   promptyly config setup"
-    fi
-else
-    if [ "$CHOICE" != "2" ] && [ "$CHOICE" != "1" ]; then
-        echo "1. Set up your AI configuration:"
-        echo "   promptyly config setup"
-    fi
-fi`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
+    echo ""
+fi
+
+echo "--------------------------------------------------"
+echo "🎉 Welcome to Promptyly!"
+echo "--------------------------------------------------"
+echo "Here are the things you can do now:"
+echo "👉 Setup different models:"
+echo "   Run 'promptyly config setup' to configure Gemini, Claude, Ollama, or OpenAI."
+echo "👉 Run with llamafile:"
+echo "   Select option 5 in 'promptyly config setup' to download the local CPU coding model."
+echo "👉 Run promptly commands:"
+echo "   Run 'promptyly create \"<prompt>\"' to generate a new app."
+echo "   Run 'promptyly run <app-name>' to edit an app interactively."
+echo "👉 Visit the local registry:"
+echo "   Start the background daemon: 'promptyly serve' (if it's not already running)"
+echo "   Then open your browser to: http://localhost:6071"
+echo "👉 Setup Remote Registry in Promptyly:"
+echo "   1. Log in to this registry server at: %[1]s://%[2]s"
+echo "   2. Go to your Profile page, copy your API Token, and configure it:"
+echo "      'promptyly config set sharing_token <your-token>'"
+echo "   3. Point your CLI to this registry:"
+echo "      'promptyly config set sharing_server_url %[1]s://%[2]s'"
+echo "👉 Visit the remote registry:"
+echo "   Open the sharing server at: %[1]s://%[2]s"
+echo "   Or search registry via CLI: 'promptyly search \"<query>\"'"
+echo "👉 Uninstall the program and service:"
+echo "   Run 'promptyly uninstall' or run the uninstaller script:"
+echo "   curl -fsSL %[1]s://%[2]s/uninstall.sh | bash"
+echo "--------------------------------------------------"`, scheme, host, scheme, host, sourceText, localLlamafileUrl)
 
 	w.Header().Set("Content-Type", "text/x-sh")
 	_, _ = w.Write([]byte(script))
@@ -1155,6 +1194,14 @@ $downloadUrl = "%s://%s/binaries/promptyly-windows-$targetArch.exe"
 
 Write-Host "📥 Downloading Promptyly CLI (windows/$targetArch)..." -ForegroundColor Cyan
 Write-Host "🔗 URL: $downloadUrl" -ForegroundColor Gray
+
+# Stop running daemon processes to release file locks on the executable
+$process = Get-Process -Name "promptyly" -ErrorAction SilentlyContinue
+if ($process) {
+    Write-Host "🔌 Stopping running daemon..." -ForegroundColor Yellow
+    Stop-Process -Name "promptyly" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
 
 Invoke-RestMethod -Uri $downloadUrl -OutFile $installPath
 
@@ -1294,13 +1341,33 @@ try {
 }
 
 Write-Host ""
-Write-Host "🚀 Next steps:" -ForegroundColor Cyan
-if ($choice -ne "1" -and $choice -ne "2") {
-    Write-Host "1. Configure your AI settings:" -ForegroundColor Gray
-    Write-Host "   promptyly config setup" -ForegroundColor Gray
-} else {
-    Write-Host "🎉 Your LLM has been successfully configured!" -ForegroundColor Green
-}
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "🎉 Welcome to Promptyly!" -ForegroundColor Green
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "Here are the things you can do now:"
+Write-Host "👉 Setup different models:" -ForegroundColor Yellow
+Write-Host "   Run 'promptyly config setup' to configure Gemini, Claude, Ollama, or OpenAI."
+Write-Host "👉 Run with llamafile:" -ForegroundColor Yellow
+Write-Host "   Select option 5 in 'promptyly config setup' to download the local CPU coding model."
+Write-Host "👉 Run promptly commands:" -ForegroundColor Yellow
+Write-Host "   Run 'promptyly create \"<prompt>\"' to generate a new app."
+Write-Host "   Run 'promptyly run <app-name>' to edit an app interactively."
+Write-Host "👉 Visit the local registry:" -ForegroundColor Yellow
+Write-Host "   Start the background daemon: 'promptyly serve' (if it's not already running)"
+Write-Host "   Then open your browser to: http://localhost:6071"
+Write-Host "👉 Setup Remote Registry in Promptyly:" -ForegroundColor Yellow
+Write-Host "   1. Log in to this registry server at: %[1]s://%[2]s"
+Write-Host "   2. Go to your Profile page, copy your API Token, and configure it:"
+Write-Host "      'promptyly config set sharing_token <your-token>'"
+Write-Host "   3. Point your CLI to this registry:"
+Write-Host "      'promptyly config set sharing_server_url %[1]s://%[2]s'"
+Write-Host "👉 Visit the remote registry:" -ForegroundColor Yellow
+Write-Host "   Open the sharing server at: %[1]s://%[2]s"
+Write-Host "   Or search registry via CLI: 'promptyly search \"<query>\"'"
+Write-Host "👉 Uninstall the program and service:" -ForegroundColor Yellow
+Write-Host "   Run 'promptyly uninstall' or run the uninstaller script:"
+Write-Host "   irm %[1]s://%[2]s/uninstall.ps1 | iex"
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 `, scheme, host, scheme, host, sourceText, localLlamafileUrl)
 
 	w.Header().Set("Content-Type", "text/plain")
