@@ -1158,6 +1158,13 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         <input type="checkbox" id="set-check-remote" style="width: auto;">
                         <label class="form-label" style="text-transform: none; margin-bottom: 0;">Check Remote Registry Before Generating New Apps</label>
                     </div>
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label class="form-label">Version Sync Status</label>
+                        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <button type="button" class="btn-primary" onclick="checkSyncStatus(this)" style="padding: 8px 16px; font-size: 0.85rem; font-weight: 600; width: auto;">Check Sync Status</button>
+                            <span id="sync-status-text" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">Click button to check connection & version sync.</span>
+                        </div>
+                    </div>
                 </div>
 
                 <button class="btn-primary" onclick="saveSettings()" style="padding: 14px; font-size: 1rem; font-weight: 700;">Save All Configuration Settings</button>
@@ -1582,6 +1589,43 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             }
         } catch (err) {
             alert('Error saving config: ' + err.message);
+        }
+    }
+
+    async function checkSyncStatus(btn) {
+        const statusText = document.getElementById('sync-status-text');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Checking...';
+        statusText.style.color = 'var(--text-secondary)';
+        statusText.textContent = 'Contacting remote registry...';
+
+        try {
+            const sharingUrl = document.getElementById('set-sharing-url').value.trim();
+            const url = '/api/version/check-sync' + (sharingUrl ? '?url=' + encodeURIComponent(sharingUrl) : '');
+            
+            const resp = await fetch(url, {
+                headers: { 'X-Promptyly-Token': API_TOKEN }
+            });
+            
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.error || ('HTTP error ' + resp.status));
+            }
+            const data = await resp.json();
+            if (data.is_newer) {
+                statusText.style.color = '#fda4af';
+                statusText.textContent = 'Out of sync! A newer version (v' + data.server_version + ') is available. You are running v{{VERSION}}.';
+            } else {
+                statusText.style.color = '#10b981';
+                statusText.textContent = 'In sync! You are running the latest version (v{{VERSION}}).';
+            }
+        } catch (err) {
+            statusText.style.color = '#f43f5e';
+            statusText.textContent = 'Error: ' + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
         }
     }
 
@@ -2142,6 +2186,7 @@ func StartDevServer(defaultPort int) (int, error) {
 	mux.HandleFunc("/api/protocol/register", withAuth(apiProtocolRegisterHandler))
 	mux.HandleFunc("/api/protocol/unregister", withAuth(apiProtocolUnregisterHandler))
 	mux.HandleFunc("/api/config", withAuth(apiConfigHandler))
+	mux.HandleFunc("/api/version/check-sync", withAuth(apiVersionCheckSyncHandler))
 
 	go func() {
 		_ = http.Serve(ln, mux)
@@ -2486,6 +2531,36 @@ func apiConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func apiVersionCheckSyncHandler(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	cfg, err := getCachedConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		targetURL = cfg.SharingServerURL
+	}
+
+	res, err := config.CheckForUpdates(targetURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func apiExportAppHandler(w http.ResponseWriter, r *http.Request) {

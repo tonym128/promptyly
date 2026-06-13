@@ -149,6 +149,26 @@ func main() {
 		fmt.Printf("Promptyly version %s\n", config.Version)
 		return
 
+	case "upgrade":
+		fmt.Printf("Checking for updates on remote registry %s...\n", cfg.SharingServerURL)
+		res, err := config.CheckForUpdates(cfg.SharingServerURL)
+		if err != nil {
+			fmt.Printf("❌ Failed to check for updates: %v\n", err)
+			os.Exit(1)
+		}
+		if !res.IsNewer {
+			fmt.Printf("✅ Promptyly is up to date (current version: v%s, server version: v%s)\n", config.Version, res.ServerVersion)
+			return
+		}
+		fmt.Printf("✨ Update available: Version v%s is available (current version: v%s)\n", res.ServerVersion, config.Version)
+		fmt.Println("⚙️  Downloading and installing update...")
+		if err := config.TriggerSelfUpdate(cfg.SharingServerURL); err != nil {
+			fmt.Printf("❌ Upgrade failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Successfully upgraded to v%s! Changes will take effect on next launch.\n", res.ServerVersion)
+		return
+
 	case "help":
 		printHelp()
 
@@ -543,6 +563,7 @@ Usage:
 
 Commands:
   version                 Show the version of Promptyly.
+  upgrade                 Checks for updates and upgrades the CLI in-place.
   create "<prompt>"       Generates a new app, starts the server and begins interactive editing.
   run <app-name>          Runs the local dev server and starts the interactive editing terminal.
   serve                   Starts the background dev server and REST API daemon.

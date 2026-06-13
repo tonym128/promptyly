@@ -25,6 +25,22 @@ func NewServer(store *Store, dataDir string) *Server {
 	}
 }
 
+func (s *Server) trackEvent(r *http.Request, category, action, label string) {
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = r.RemoteAddr
+		if idx := strings.LastIndex(ip, ":"); idx != -1 {
+			ip = ip[:idx]
+		}
+	} else {
+		if idx := strings.Index(ip, ","); idx != -1 {
+			ip = strings.TrimSpace(ip[:idx])
+		}
+	}
+	ua := r.UserAgent()
+	s.store.RecordEvent(category, action, label, ip, ua)
+}
+
 // getLoggedInUser parses session token from request cookies.
 func (s *Server) getLoggedInUser(r *http.Request) *User {
 	cookie, err := r.Cookie("session_token")

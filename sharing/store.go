@@ -44,13 +44,23 @@ type ServerConfig struct {
 	AllowSelfRegistration bool `json:"allow_self_registration"`
 }
 
+type AnalyticsEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Category  string    `json:"category"`  // "page", "link", "app", "upload", "url"
+	Action    string    `json:"action"`    // "view", "click", "download", "publish", "create"
+	Label     string    `json:"label"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+}
+
 type Store struct {
-	mu       sync.RWMutex
-	filePath string
-	Users    map[string]*User  `json:"users"`  // username -> User
-	Tokens   map[string]string `json:"tokens"` // token -> username
-	Apps     map[string]*App   `json:"apps"`   // id -> App
-	Config   ServerConfig      `json:"config"`
+	mu        sync.RWMutex
+	filePath  string
+	Users     map[string]*User           `json:"users"`  // username -> User
+	Tokens    map[string]string          `json:"tokens"` // token -> username
+	Apps      map[string]*App            `json:"apps"`   // id -> App
+	Config    ServerConfig               `json:"config"`
+	Analytics []AnalyticsEvent           `json:"analytics,omitempty"`
 }
 
 func NewStore(filePath string) (*Store, error) {
@@ -497,4 +507,37 @@ func (s *Store) UpdateConfig(config ServerConfig) error {
 	defer s.mu.Unlock()
 	s.Config = config
 	return s.saveLocked()
+}
+
+func (s *Store) RecordEvent(category, action, label string, ip string, ua string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := AnalyticsEvent{
+		Timestamp: time.Now(),
+		Category:  category,
+		Action:    action,
+		Label:     label,
+		IP:        ip,
+		UserAgent: ua,
+	}
+
+	s.Analytics = append(s.Analytics, event)
+
+	// Cap the log at 5000 events to prevent JSON file bloating
+	if len(s.Analytics) > 5000 {
+		s.Analytics = s.Analytics[len(s.Analytics)-5000:]
+	}
+
+	_ = s.saveLocked()
+}
+
+func (s *Store) GetAnalytics() []AnalyticsEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	// Return a copy to avoid slice sharing data race
+	res := make([]AnalyticsEvent, len(s.Analytics))
+	copy(res, s.Analytics)
+	return res
 }
