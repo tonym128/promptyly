@@ -326,7 +326,7 @@ func getFooter() string {
 </html>`
 }
 
-func RenderHome(apps []*App, searchQuery string, user *User) string {
+func RenderHome(apps []*App, searchQuery string, sortBy string, order string, user *User) string {
 	appsGrid := ""
 	if len(apps) == 0 {
 		appsGrid = `
@@ -385,6 +385,31 @@ func RenderHome(apps []*App, searchQuery string, user *User) string {
 
 	searchVal := html.EscapeString(searchQuery)
 
+	sortUploadDateSel := ""
+	sortViewsSel := ""
+	sortCreatedBySel := ""
+	sortNameSel := ""
+	switch sortBy {
+	case "views":
+		sortViewsSel = "selected"
+	case "created_by":
+		sortCreatedBySel = "selected"
+	case "name":
+		sortNameSel = "selected"
+	case "upload_date":
+		fallthrough
+	default:
+		sortUploadDateSel = "selected"
+	}
+
+	orderDescSel := ""
+	orderAscSel := ""
+	if order == "desc" {
+		orderDescSel = "selected"
+	} else {
+		orderAscSel = "selected"
+	}
+
 	body := fmt.Sprintf(`
         <div class="hero" style="text-align: center; max-width: 700px; margin: 0 auto 10px auto; display: flex; flex-direction: column; gap: 16px;">
             <h1 style="font-size: 2.8rem; letter-spacing: -0.03em;">App Sharing Registry</h1>
@@ -393,13 +418,28 @@ func RenderHome(apps []*App, searchQuery string, user *User) string {
             </p>
         </div>
 
-        <div class="search-container card" style="padding: 20px; width: 100%%;">
-            <form action="/" method="GET" style="display: flex; gap: 14px; width: 100%%;">
-                <div style="position: relative; flex-grow: 1; display: flex; align-items: center;">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 14px; color: var(--text-muted); pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" name="q" value="%s" placeholder="Search by name, prompt text, creator..." class="text-input" style="padding-left: 44px;">
+        <div class="search-container card" style="padding: 20px; width: 100%%; display: flex; flex-direction: column; gap: 14px;">
+            <form action="/registry" method="GET" style="display: flex; flex-direction: column; gap: 14px; width: 100%%;">
+                <div style="display: flex; gap: 14px; width: 100%%;">
+                    <div style="position: relative; flex-grow: 1; display: flex; align-items: center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 14px; color: var(--text-muted); pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" name="q" value="%s" placeholder="Search by name, prompt text, creator..." class="text-input" style="padding-left: 44px;">
+                    </div>
+                    <button type="submit" class="btn-submit" style="white-space: nowrap;">Search Registry</button>
                 </div>
-                <button type="submit" class="btn-submit" style="white-space: nowrap;">Search Registry</button>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Sort By:</span>
+                    <select name="sort" onchange="this.form.submit()" class="text-input" style="width: auto; padding: 6px 12px; height: 38px; border-radius: 8px; font-size: 0.85rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary);">
+                        <option value="upload_date" %s>Upload Date</option>
+                        <option value="views" %s>Views</option>
+                        <option value="created_by" %s>Created By</option>
+                        <option value="name" %s>Name</option>
+                    </select>
+                    <select name="order" onchange="this.form.submit()" class="text-input" style="width: auto; padding: 6px 12px; height: 38px; border-radius: 8px; font-size: 0.85rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary);">
+                        <option value="desc" %s>Descending</option>
+                        <option value="asc" %s>Ascending</option>
+                    </select>
+                </div>
             </form>
         </div>
 
@@ -418,7 +458,7 @@ func RenderHome(apps []*App, searchQuery string, user *User) string {
                 box-shadow: 0 10px 25px -10px var(--accent-glow);
             }
         </style>
-    `, searchVal, len(apps), appsGrid)
+    `, searchVal, sortUploadDateSel, sortViewsSel, sortCreatedBySel, sortNameSel, orderDescSel, orderAscSel, len(apps), appsGrid)
 
 	return getHeader("Registry", user) + body + getFooter()
 }

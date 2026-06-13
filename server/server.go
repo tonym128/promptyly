@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"promptyly/config"
+	"html"
 	"promptyly/urlscheme"
 	"sort"
 	"strings"
@@ -411,9 +412,24 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         </div>`
 	} else {
 		gridHTML = `
-        <div class="search-local-wrapper" style="margin-bottom: 24px; position: relative;">
-            <input type="text" id="local-search-input" placeholder="Search local apps by name or prompt..." class="form-control" style="width: 100%; height: 50px; padding-left: 44px; margin-bottom: 0; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 12px; font-size: 0.95rem; color: var(--text-primary); transition: all 0.2s;" oninput="filterLocalApps()">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 16px; top: 16px; color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <div class="search-local-wrapper" style="margin-bottom: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; width: 100%;">
+            <div style="position: relative; flex-grow: 1; min-width: 250px;">
+                <input type="text" id="local-search-input" placeholder="Search local apps by name or prompt..." class="form-control" style="width: 100%; height: 50px; padding-left: 44px; margin-bottom: 0; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 12px; font-size: 0.95rem; color: var(--text-primary); transition: all 0.2s;" oninput="filterLocalApps()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 16px; top: 16px; color: var(--text-muted);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; white-space: nowrap;">
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">Sort By:</span>
+                <select id="local-sort-by" onchange="sortLocalApps()" class="form-control" style="width: auto; height: 50px; border-radius: 12px; font-size: 0.9rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0 16px; margin-bottom: 0;">
+                    <option value="created">Created Date</option>
+                    <option value="name">Name</option>
+                    <option value="views">Views</option>
+                    <option value="creator">Creator</option>
+                </select>
+                <select id="local-sort-order" onchange="sortLocalApps()" class="form-control" style="width: auto; height: 50px; border-radius: 12px; font-size: 0.9rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0 16px; margin-bottom: 0;">
+                    <option value="desc">Descending</option>
+                    <option value="asc">Ascending</option>
+                </select>
+            </div>
         </div>
         <div class="grid">`
 		for _, name := range appNames {
@@ -428,6 +444,15 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Format title: dash to space, capitalized
 			displayName := strings.Title(strings.ReplaceAll(name, "-", " "))
+
+			// Get directory stats for created time
+			dirPath := cfg.Apps[name]
+			var created int64
+			if info, err := os.Stat(dirPath); err == nil {
+				created = info.ModTime().Unix()
+			} else {
+				created = time.Now().Unix()
+			}
 
 			// Generate deep links
 			runLink := fmt.Sprintf("prompt://%s", name)
@@ -455,15 +480,21 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			publishBtnPart := ""
+			publishCheckboxPart := ""
 			if cfg.SharingToken != "" {
 				publishBtnPart = fmt.Sprintf(`
                     <button class="tool-btn" onclick="publishApp('%s')" title="Publish App to Registry">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     </button>`, name)
+				publishCheckboxPart = fmt.Sprintf(`
+                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px;">
+                        <input type="checkbox" id="edit-publish-%s" style="width: 16px; height: 16px; accent-color: var(--accent-color); cursor: pointer;">
+                        <label for="edit-publish-%s" style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">Publish to remote registry after update</label>
+                    </div>`, name, name)
 			}
 
 			gridHTML += fmt.Sprintf(`
-            <div class="card" id="card-%s">
+            <div class="card" id="card-%s" data-name="%s" data-created="%d" data-views="0" data-creator="You">
                 <div class="card-header">
                     <h3 class="card-title" id="title-%s">%s</h3>
                     <span class="card-badge">Local App</span>
@@ -485,6 +516,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
                 <div class="inline-edit-panel" id="edit-panel-%s" style="display: none;">
                     <textarea class="edit-textarea" id="edit-input-%s" placeholder="Describe edits... (e.g., Change accent colors, add feature x)"></textarea>
+                    %s
                     <button class="card-btn" style="margin-top: 8px; width: 100%%;" onclick="submitInlineEdit('%s')" id="edit-submit-%s">Update Application</button>
                     <div class="edit-loading" id="edit-loading-%s" style="display: none;">
                         <div class="spinner"></div> Updating application...
@@ -506,7 +538,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                 <div class="card-actions">
                     <a href="/apps/%s/" target="_blank" class="card-btn">Open Application</a>
                 </div>
-            </div>`, name, name, displayName, name, displayPrompt, name, name, publishBtnPart, name, name, name, name, name, name, runLink, runLink, createLinkPart, name)
+            </div>`, name, html.EscapeString(displayName), created, name, displayName, name, displayPrompt, name, name, publishBtnPart, name, name, name, publishCheckboxPart, name, name, name, runLink, runLink, createLinkPart, name)
 		}
 		gridHTML += `</div>`
 	}
@@ -1066,6 +1098,19 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         Search Registry
                     </button>
                 </div>
+                <div style="display: flex; gap: 12px; align-items: center; margin-top: 14px; flex-wrap: wrap;">
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Sort By:</span>
+                    <select id="remote-sort-by" onchange="searchRemote()" class="form-control" style="width: auto; height: 38px; border-radius: 8px; font-size: 0.85rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0 12px; margin-bottom: 0;">
+                        <option value="upload_date">Upload Date</option>
+                        <option value="views">Views</option>
+                        <option value="created_by">Created By</option>
+                        <option value="name">Name</option>
+                    </select>
+                    <select id="remote-sort-order" onchange="searchRemote()" class="form-control" style="width: auto; height: 38px; border-radius: 8px; font-size: 0.85rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0 12px; margin-bottom: 0;">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
             </div>
 
             <div class="grid" id="remote-grid">
@@ -1115,6 +1160,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                                 <option value="claude">Claude (Anthropic)</option>
                                 <option value="ollama">Ollama</option>
                                 <option value="llamafile">Llamafile</option>
+                                <option value="registry">Remote Registry Llamafile</option>
                                 <option value="openai">OpenAI (Official)</option>
                                 <option value="openai-compatible">OpenAI-compatible / LM Studio</option>
                             </select>
@@ -1321,7 +1367,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         const type = document.getElementById('editor-type').value;
         const urlGroup = document.getElementById('group-editor-url');
         
-        if (type === 'ollama' || type === 'openai-compatible' || type === 'llamafile') {
+        if (type === 'ollama' || type === 'openai-compatible' || type === 'llamafile' || type === 'registry') {
             urlGroup.style.display = 'block';
         } else {
             urlGroup.style.display = 'none';
@@ -1634,12 +1680,14 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             await loadSettings();
         }
         const q = document.getElementById('remote-q').value.trim();
+        const sortBy = document.getElementById('remote-sort-by').value;
+        const sortOrder = document.getElementById('remote-sort-order').value;
         const serverUrl = activeConfig.sharing_server_url || 'http://localhost:6072';
         const grid = document.getElementById('remote-grid');
         grid.innerHTML = '<div class="empty-state" style="grid-column: 1/-1;"><div class="spinner" style="margin: 0 auto 12px auto;"></div>Querying Remote Registry...</div>';
 
         try {
-            const res = await fetch('/api/apps/search?q=' + encodeURIComponent(q), {
+            const res = await fetch('/api/apps/search?q=' + encodeURIComponent(q) + '&sort=' + encodeURIComponent(sortBy) + '&order=' + encodeURIComponent(sortOrder), {
                 headers: {
                     'X-Promptyly-Token': API_TOKEN
                 }
@@ -1804,9 +1852,43 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
+    function sortLocalApps() {
+        const sortBy = document.getElementById('local-sort-by');
+        const sortOrder = document.getElementById('local-sort-order');
+        if (!sortBy || !sortOrder) return;
+        const grid = document.querySelector('#panel-local .grid');
+        if (!grid) return;
+        const cards = Array.from(grid.querySelectorAll('.card'));
+        
+        cards.sort((a, b) => {
+            let valA, valB;
+            if (sortBy.value === 'created') {
+                valA = parseInt(a.getAttribute('data-created') || '0', 10);
+                valB = parseInt(b.getAttribute('data-created') || '0', 10);
+            } else if (sortBy.value === 'views') {
+                valA = parseInt(a.getAttribute('data-views') || '0', 10);
+                valB = parseInt(b.getAttribute('data-views') || '0', 10);
+            } else if (sortBy.value === 'creator') {
+                valA = (a.getAttribute('data-creator') || '').toLowerCase();
+                valB = (b.getAttribute('data-creator') || '').toLowerCase();
+            } else { // name
+                valA = (a.getAttribute('data-name') || '').toLowerCase();
+                valB = (b.getAttribute('data-name') || '').toLowerCase();
+            }
+            
+            if (valA < valB) return sortOrder.value === 'asc' ? -1 : 1;
+            if (valA > valB) return sortOrder.value === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        // Re-append in sorted order
+        cards.forEach(card => grid.appendChild(card));
+    }
+
     // Load initial config on page boot
     document.addEventListener('DOMContentLoaded', () => {
         loadSettings();
+        sortLocalApps();
     });
 
     function toggleInlineEdit(name) {
@@ -1820,6 +1902,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         const input = document.getElementById('edit-input-' + name);
         const button = document.getElementById('edit-submit-' + name);
         const loading = document.getElementById('edit-loading-' + name);
+        const publishChk = document.getElementById('edit-publish-' + name);
+        const shouldPublish = publishChk && publishChk.checked;
 
         if (!input || !input.value.trim()) return;
 
@@ -1837,7 +1921,30 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                 body: JSON.stringify({ name: name, prompt: input.value.trim() })
             });
             if (res.ok) {
-                alert('Application updated successfully!');
+                if (shouldPublish) {
+                    loading.innerHTML = '<div class="spinner"></div> Publishing application to registry...';
+                    try {
+                        const pubRes = await fetch('/api/apps/publish', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'X-Promptyly-Token': API_TOKEN
+                            },
+                            body: JSON.stringify({ name: name })
+                        });
+                        if (pubRes.ok) {
+                            const data = await pubRes.json();
+                            alert('Success! Application updated and successfully published to the registry!\nLive URL: ' + data.liveUrl + '\nDetail Page: ' + data.detailUrl);
+                        } else {
+                            const txt = await pubRes.text();
+                            alert('Application updated successfully, but publishing failed: ' + txt);
+                        }
+                    } catch (pubErr) {
+                        alert('Application updated successfully, but publishing encountered an error: ' + pubErr.message);
+                    }
+                } else {
+                    alert('Application updated successfully!');
+                }
                 window.location.reload();
             } else {
                 const txt = await res.text();
@@ -2894,6 +3001,8 @@ func apiSearchAppsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query().Get("q")
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
 	cfg, err := getCachedConfig()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -2903,7 +3012,7 @@ func apiSearchAppsHandler(w http.ResponseWriter, r *http.Request) {
 	if serverURL == "" {
 		serverURL = "http://localhost:6072"
 	}
-	u := fmt.Sprintf("%s/api/apps/search?q=%s", strings.TrimSuffix(serverURL, "/"), url.QueryEscape(q))
+	u := fmt.Sprintf("%s/api/apps/search?q=%s&sort=%s&order=%s", strings.TrimSuffix(serverURL, "/"), url.QueryEscape(q), url.QueryEscape(sortBy), url.QueryEscape(order))
 	resp, err := http.Get(u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"promptyly/agent"
 	"promptyly/config"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -289,8 +290,22 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 		apps = s.store.ListApps()
 	}
 
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if sortBy == "" {
+		sortBy = "upload_date"
+	}
+	if order == "" {
+		if sortBy == "upload_date" || sortBy == "views" {
+			order = "desc"
+		} else {
+			order = "asc"
+		}
+	}
+	sortApps(apps, sortBy, order)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(RenderHome(apps, query, user)))
+	_, _ = w.Write([]byte(RenderHome(apps, query, sortBy, order, user)))
 }
 
 // handleProfile renders the developer profile page.
@@ -604,6 +619,19 @@ func (s *Server) apiListApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apps := s.store.ListApps()
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if sortBy != "" {
+		if order == "" {
+			if sortBy == "upload_date" || sortBy == "views" {
+				order = "desc"
+			} else {
+				order = "asc"
+			}
+		}
+		sortApps(apps, sortBy, order)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(apps)
 }
@@ -618,6 +646,19 @@ func (s *Server) apiSearchApps(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	s.trackEvent(r, "url", "search", query)
 	apps := s.store.SearchApps(query)
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if sortBy != "" {
+		if order == "" {
+			if sortBy == "upload_date" || sortBy == "views" {
+				order = "desc"
+			} else {
+				order = "asc"
+			}
+		}
+		sortApps(apps, sortBy, order)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(apps)
 }
@@ -1178,12 +1219,13 @@ echo "Promptyly needs a local or remote LLM provider to function."
 echo "Choose one of the following options:"
 echo "1) Configure LLM via API Key or URL (Gemini, Claude, Ollama, OpenAI)"
 echo "2) Install a local CPU coding model (Qwen2.5-Coder-1.5B via llamafile, ~1.2GB, runs on 4GB RAM)"
-echo "3) Skip configuration (you can run 'promptyly config setup' later)"
+echo "3) Use this Remote Registry server's Llamafile LLM"
+echo "4) Skip configuration (you can run 'promptyly config setup' later)"
 echo ""
-printf "Enter choice (1-3) [default: 3]: "
+printf "Enter choice (1-4) [default: 4]: "
 read CHOICE < /dev/tty
 if [ -z "$CHOICE" ]; then
-    CHOICE="3"
+    CHOICE="4"
 fi
 
 if [ "$CHOICE" = "1" ]; then
@@ -1273,9 +1315,17 @@ elif [ "$CHOICE" = "2" ]; then
     echo "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to ${MODEL_PATH}"
     echo "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:6073/v1"
     echo ""
-    echo "💡 To run your local model, execute:"
-    echo "   sh ${MODEL_PATH} --port 6073"
     echo "And keep the terminal window open while using Promptyly."
+elif [ "$CHOICE" = "3" ]; then
+    echo ""
+    echo "🤖 Configuring to use remote registry Llamafile..."
+    "${INSTALL_PATH}" config set default_provider "registry"
+    "${INSTALL_PATH}" config set sharing_server_url "%[1]s://%[2]s"
+    printf "Enter your Registry API Token (Optional): "
+    read API_KEY < /dev/tty
+    if [ -n "$API_KEY" ]; then
+        "${INSTALL_PATH}" config set sharing_token "$API_KEY"
+    fi
 fi
 
 echo ""
@@ -1397,10 +1447,11 @@ Write-Host "Promptyly needs a local or remote LLM provider to function."
 Write-Host "Choose one of the following options:"
 Write-Host "1) Configure LLM via API Key or URL (Gemini, Claude, Ollama, OpenAI)"
 Write-Host "2) Install a local CPU coding model (Qwen2.5-Coder-1.5B via llamafile, ~1.2GB, runs on 4GB RAM)"
-Write-Host "3) Skip configuration (you can run 'promptyly config setup' later)"
+Write-Host "3) Use this Remote Registry server's Llamafile LLM"
+Write-Host "4) Skip configuration (you can run 'promptyly config setup' later)"
 Write-Host ""
-$choice = Read-Host "Enter choice (1-3) [default: 3]"
-if (-not $choice) { $choice = "3" }
+$choice = Read-Host "Enter choice (1-4) [default: 4]"
+if (-not $choice) { $choice = "4" }
 
 if ($choice -eq "1") {
     Write-Host ""
@@ -1475,10 +1526,16 @@ if ($choice -eq "1") {
     Write-Host ""
     Write-Host "✅ Qwen2.5-Coder-1.5B llamafile successfully installed to $modelPath" -ForegroundColor Green
     Write-Host "🤖 Configure complete: default provider set to Local Llamafile at http://localhost:6073/v1" -ForegroundColor Green
+    Write-Host "And keep the terminal window open while using Promptyly."
+} elseif ($choice -eq "3") {
     Write-Host ""
-    Write-Host "💡 To run your local model, execute:" -ForegroundColor Cyan
-    Write-Host '   & "$modelPath" --port 6073' -ForegroundColor Cyan
-    Write-Host "And keep the terminal window open while using Promptyly." -ForegroundColor Cyan
+    Write-Host "🤖 Configuring to use remote registry Llamafile..." -ForegroundColor Yellow
+    & $installPath config set default_provider "registry"
+    & $installPath config set sharing_server_url "%s://%s"
+    $apiKey = Read-Host "Enter your Registry API Token (Optional)"
+    if ($apiKey) {
+        & $installPath config set sharing_token $apiKey
+    }
 }
 
 Write-Host ""
@@ -2065,4 +2122,27 @@ Follow these guidelines:
 		"url":     "/apps/" + appName + "/",
 	})
 }
+
+func sortApps(apps []*App, sortBy, order string) {
+	sort.Slice(apps, func(i, j int) bool {
+		var less bool
+		switch sortBy {
+		case "views":
+			less = apps[i].Views < apps[j].Views
+		case "created_by":
+			less = strings.ToLower(apps[i].Username) < strings.ToLower(apps[j].Username)
+		case "name":
+			less = strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
+		case "upload_date":
+			fallthrough
+		default:
+			less = apps[i].CreatedAt.Before(apps[j].CreatedAt)
+		}
+		if order == "desc" {
+			return !less
+		}
+		return less
+	})
+}
+
 

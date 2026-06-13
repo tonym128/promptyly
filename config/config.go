@@ -121,7 +121,7 @@ func LoadConfig() (*Config, error) {
 				URL:    "http://localhost:6072/api/llm/v1",
 				Model:  "qwen2.5-coder-1.5b-instruct",
 				Models: []string{"qwen2.5-coder-1.5b-instruct", "llama-3.2-1b-instruct"},
-				Type:   "openai-compatible",
+				Type:   "registry",
 			},
 		},
 		Apps:             make(map[string]string),
@@ -292,19 +292,19 @@ func (cfg *Config) GetActiveProvider() (string, ProviderConfig) {
 	}
 
 	// Dynamic resolution of registry server configuration details
-	if prov == "registry" {
+	if prov == "registry" || pc.Type == "registry" {
 		if pc.URL == "" || pc.URL == "http://localhost:6072/api/llm/v1" {
 			serverURL := strings.TrimSuffix(cfg.SharingServerURL, "/")
 			pc.URL = serverURL + "/api/llm/v1"
 		}
 		if pc.Type == "" {
-			pc.Type = "openai-compatible"
+			pc.Type = "registry"
 		}
 	}
 
 	// Auto-inject SharingToken as APIKey for registry routes
 	if pc.APIKey == "" && cfg.SharingToken != "" {
-		if strings.Contains(pc.URL, "/api/llm") || (cfg.SharingServerURL != "" && strings.Contains(pc.URL, cfg.SharingServerURL)) || prov == "registry" {
+		if strings.Contains(pc.URL, "/api/llm") || (cfg.SharingServerURL != "" && strings.Contains(pc.URL, cfg.SharingServerURL)) || prov == "registry" || pc.Type == "registry" {
 			pc.APIKey = cfg.SharingToken
 		}
 	}

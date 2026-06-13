@@ -706,7 +706,8 @@ func handleConfigSetup(cfg *config.Config) {
 	fmt.Println("3) Ollama (Local LLM Server)")
 	fmt.Println("4) OpenAI-compatible (LM Studio, Local AI, etc.)")
 	fmt.Println("5) Local Llamafile (Download and set up Qwen2.5-Coder-1.5B CPU coding model - ~1.2GB)")
-	fmt.Print("Choose option (1-5) [default: 1]: ")
+	fmt.Println("6) Remote Registry Llamafile (Use the LLM server hosted on your sharing registry)")
+	fmt.Print("Choose option (1-6) [default: 1]: ")
 
 	choice := "1"
 	if scanner.Scan() {
@@ -757,6 +758,8 @@ func handleConfigSetup(cfg *config.Config) {
 		provider = "ollama"
 	case "4":
 		provider = "lmstudio"
+	case "6":
+		provider = "registry"
 	}
 	cfg.DefaultProvider = provider
 	fmt.Printf("Selected default provider: %s\n\n", provider)
@@ -883,6 +886,53 @@ func handleConfigSetup(cfg *config.Config) {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
 				pCfg.APIKey = val
+			}
+		}
+	case "registry":
+		defaultURL := pCfg.URL
+		if defaultURL == "" {
+			defaultURL = "http://localhost:6072/api/llm/v1"
+			if cfg.SharingServerURL != "" {
+				defaultURL = strings.TrimSuffix(cfg.SharingServerURL, "/") + "/api/llm/v1"
+			}
+		}
+		fmt.Printf("Enter Remote Registry API URL [default: %s]: ", defaultURL)
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.URL = val
+			} else {
+				pCfg.URL = defaultURL
+			}
+		}
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "qwen2.5-coder-1.5b-instruct"
+		}
+		fmt.Printf("Enter Remote Registry Model [default: %s]: ", defaultModel)
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
+			}
+		}
+		defaultKey := pCfg.APIKey
+		if defaultKey == "" && cfg.SharingToken != "" {
+			defaultKey = cfg.SharingToken
+		}
+		if defaultKey != "" {
+			fmt.Printf("Enter Registry API Token (Optional) [default: %s]: ", maskKey(defaultKey))
+		} else {
+			fmt.Print("Enter Registry API Token (Optional): ")
+		}
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.APIKey = val
+			} else if defaultKey != "" {
+				pCfg.APIKey = defaultKey
 			}
 		}
 	}
