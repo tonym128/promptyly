@@ -395,34 +395,36 @@ func (s *Store) EnsureAdminUser(envUser, envPass string) (string, string, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if an admin already exists
-	adminExists := false
-	for _, user := range s.Users {
-		if user.IsAdmin {
-			adminExists = true
-			break
-		}
-	}
-
-	if adminExists {
-		return "", "", nil
-	}
-
-	// No admin exists, create one
 	username := "admin"
 	if envUser != "" {
 		username = envUser
 	}
-
 	usernameNorm := strings.ToLower(strings.TrimSpace(username))
-	
-	// If the user already exists, we make them admin. Otherwise we create them.
+
 	user, exists := s.Users[usernameNorm]
 	var password string
 	if exists {
 		user.IsAdmin = true
 		user.IsApproved = true
+		if envPass != "" {
+			salt := generateRandomString(16)
+			user.PasswordHash = hashPassword(envPass, salt)
+			user.Salt = salt
+			password = envPass
+		}
 	} else {
+		// Check if some other user is admin, if so do not create another default admin
+		adminExists := false
+		for _, u := range s.Users {
+			if u.IsAdmin {
+				adminExists = true
+				break
+			}
+		}
+		if adminExists {
+			return "", "", nil
+		}
+
 		password = envPass
 		if password == "" {
 			password = generateRandomString(12) // Generates 24 hex characters
@@ -541,3 +543,31 @@ func (s *Store) GetAnalytics() []AnalyticsEvent {
 	copy(res, s.Analytics)
 	return res
 }
+
+func (s *Store) UpdatePassword(username, currentPassword, newPassword string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	usernameNorm := strings.ToLower(strings.TrimSpace(username))
+	user, exists := s.Users[usernameNorm]
+	if !exists {
+		return fmt.Errorf("user not found")
+	}
+
+	// Verify current password
+	if hashPassword(currentPassword, user.Salt) != user.PasswordHash {
+		return fmt.Errorf("incorrect current password")
+	}
+
+	if len(newPassword) < 6 {
+		return fmt.Errorf("password must be at least 6 characters")
+	}
+
+	// Update password hash and salt
+	newSalt := generateRandomString(16)
+	user.PasswordHash = hashPassword(newPassword, newSalt)
+	user.Salt = newSalt
+
+	return s.saveLocked()
+}
+

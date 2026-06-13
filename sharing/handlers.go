@@ -139,6 +139,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/auth/register", wrap(s.apiRegister))
 	mux.HandleFunc("/api/auth/login", wrap(s.apiLogin))
 	mux.HandleFunc("/api/auth/me", wrap(s.apiMe))
+	mux.HandleFunc("/api/auth/update-password", wrap(s.apiUpdatePassword))
 	mux.HandleFunc("/api/apps/list", wrap(s.apiListApps))
 	mux.HandleFunc("/api/apps/search", wrap(s.apiSearchApps))
 	mux.HandleFunc("/api/apps/upload", wrap(s.apiUploadApp))
@@ -540,6 +541,43 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		"username": user.Username,
 	})
 }
+
+func (s *Server) apiUpdatePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := s.getLoggedInUser(r)
+	if user == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := s.store.UpdatePassword(user.Username, req.CurrentPassword, req.NewPassword); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 
 // apiUploadApp processes machine integrations and client uploads.
 func (s *Server) apiUploadApp(w http.ResponseWriter, r *http.Request) {

@@ -1022,6 +1022,32 @@ func RenderProfile(user *User) string {
                     <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; margin-bottom: 12px;">To configure your local Promptyly CLI to push to this server, execute the following commands:</p>
                     <pre style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #a5b4fc; overflow-x: auto; line-height: 1.4;">promptyly config set sharing_server_url <span id="cli-url"></span>&#10;promptyly config set sharing_token %s</pre>
                 </div>
+
+                <!-- Change Password -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 24px; margin-top: 12px;">
+                    <span style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.05em; margin-bottom: 6px;">Change Password</span>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5;">Update the password used to log in to this registry.</p>
+                    
+                    <div id="password-alert" style="display: none; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem;"></div>
+
+                    <form id="password-form" onsubmit="updatePassword(event)" style="display: flex; flex-direction: column; gap: 16px; max-width: 450px;">
+                        <div class="input-group">
+                            <label class="input-label">Current Password</label>
+                            <input type="password" id="current-password" required class="text-input" placeholder="••••••••">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">New Password</label>
+                            <input type="password" id="new-password" required class="text-input" placeholder="Min 6 characters">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 8px;">
+                            <label class="input-label">Confirm New Password</label>
+                            <input type="password" id="confirm-password" required class="text-input" placeholder="Confirm new password">
+                        </div>
+                        <div>
+                            <button type="submit" id="btn-update-password" class="btn-submit" style="padding: 10px 20px; font-size: 0.9rem; width: auto; margin-bottom: 0;">Update Password</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -1053,6 +1079,62 @@ func RenderProfile(user *User) string {
             }).catch(err => {
                 alert('Failed to copy token: ' + err);
             });
+        }
+
+        async function updatePassword(event) {
+            event.preventDefault();
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const alertEl = document.getElementById('password-alert');
+            const btn = document.getElementById('btn-update-password');
+
+            if (newPassword.length < 6) {
+                alertEl.textContent = 'New password must be at least 6 characters long.';
+                alertEl.className = 'alert-error';
+                alertEl.style.display = 'block';
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                alertEl.textContent = 'New passwords do not match.';
+                alertEl.className = 'alert-error';
+                alertEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+            alertEl.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/auth/update-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword
+                    })
+                });
+                const res = await resp.json();
+                if (res.success) {
+                    alertEl.textContent = 'Password updated successfully!';
+                    alertEl.className = 'alert-success';
+                    alertEl.style.display = 'block';
+                    document.getElementById('password-form').reset();
+                } else {
+                    alertEl.textContent = res.error || 'Failed to update password.';
+                    alertEl.className = 'alert-error';
+                    alertEl.style.display = 'block';
+                }
+            } catch (e) {
+                alertEl.textContent = 'Network error: ' + e.message;
+                alertEl.className = 'alert-error';
+                alertEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Update Password';
+            }
         }
     </script>
     `,
