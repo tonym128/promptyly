@@ -25,7 +25,8 @@ type openAIMessage struct {
 type openAIRequest struct {
 	Model       string          `json:"model"`
 	Messages    []openAIMessage `json:"messages"`
-	Temperature float64         `json:"temperature,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 }
 
@@ -51,6 +52,10 @@ func NewOpenAIClient(cfg config.ProviderConfig, providerKey string) *OpenAIClien
 			cfg.URL = "http://localhost:6073/v1"
 		} else if providerKey == "registry" {
 			cfg.URL = "http://localhost:6072/api/llm/v1"
+		} else if providerKey == "openai" {
+			cfg.URL = "https://api.openai.com/v1"
+		} else if providerKey == "openai-compatible" {
+			cfg.URL = "http://localhost:1234/v1"
 		}
 	}
 	if cfg.Model == "" {
@@ -62,6 +67,10 @@ func NewOpenAIClient(cfg config.ProviderConfig, providerKey string) *OpenAIClien
 			cfg.Model = "qwen2.5-coder-1.5b-instruct"
 		} else if providerKey == "registry" {
 			cfg.Model = "qwen2.5-coder-1.5b-instruct"
+		} else if providerKey == "openai" {
+			cfg.Model = "gpt-4o"
+		} else if providerKey == "openai-compatible" {
+			cfg.Model = "meta-llama-3-8b-instruct"
 		}
 	}
 	return &OpenAIClient{Config: cfg, ProviderKey: providerKey}
@@ -114,10 +123,18 @@ func (c *OpenAIClient) Generate(ctx context.Context, systemPrompt, userPrompt st
 	messages = append(messages, openAIMessage{Role: "user", Content: userPrompt})
 
 	reqBody := openAIRequest{
-		Model:       c.Config.Model,
-		Messages:    messages,
-		Temperature: 0.2,
-		Stream:      onToken != nil,
+		Model:     c.Config.Model,
+		Messages:  messages,
+		MaxTokens: 8192,
+		Stream:    onToken != nil,
+	}
+
+	// o1/reasoning/opus models do not support temperature/streaming in the same way, 
+	// or they strictly require temperature=1 or omitted.
+	isReasoning := strings.HasPrefix(c.Config.Model, "o1-") || strings.Contains(c.Config.Model, "thinking") || strings.Contains(c.Config.Model, "opus")
+	if !isReasoning {
+		temp := 0.2
+		reqBody.Temperature = &temp
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)

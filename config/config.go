@@ -32,6 +32,8 @@ type Config struct {
 	SharingServerURL string                    `json:"sharing_server_url"`
 	SharingToken     string                    `json:"sharing_token"`
 	CheckRemoteFirst bool                      `json:"check_remote_first"`
+	EnableCaveman    bool                      `json:"enable_caveman"`
+	Quiet            bool                      `json:"quiet"`
 	ServerPort       int                       `json:"server_port"`
 }
 
@@ -102,6 +104,11 @@ func LoadConfig() (*Config, error) {
 				Model:  "claude-3-5-sonnet-20240620",
 				Models: []string{"claude-3-5-sonnet-20240620", "claude-3-haiku-20240307", "claude-3-opus-20240229"},
 			},
+			"openai": {
+				URL:    "https://api.openai.com/v1",
+				Model:  "gpt-4o",
+				Models: []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
+			},
 			"ollama": {
 				URL:    "http://localhost:11434",
 				Model:  "llama3",
@@ -129,6 +136,8 @@ func LoadConfig() (*Config, error) {
 		ServerPort:       6071,
 		SharingServerURL: "http://localhost:6072",
 		CheckRemoteFirst: true,
+		EnableCaveman:    false,
+		Quiet:            false,
 	}
 
 	home, err := os.UserHomeDir()
@@ -208,6 +217,8 @@ func LoadConfig() (*Config, error) {
 		cfg.SharingToken = loadedConfig.SharingToken
 	}
 	cfg.CheckRemoteFirst = loadedConfig.CheckRemoteFirst
+	cfg.EnableCaveman = loadedConfig.EnableCaveman
+	cfg.Quiet = loadedConfig.Quiet
 	for k, v := range loadedConfig.Providers {
 		cfgV := cfg.Providers[k]
 		if v.Type != "" {

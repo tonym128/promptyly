@@ -33,8 +33,8 @@ var (
 	cachedConfigMu sync.Mutex
 
 	// Callbacks to decouple server from app package (avoiding cyclic imports)
-	CreateAppCallback func(ctx context.Context, prompt string, onToken func(token string)) (string, string, error)
-	EditAppCallback   func(ctx context.Context, name, prompt string, onToken func(token string)) error
+	CreateAppCallback func(ctx context.Context, prompt string, cavemanOverride *bool, onToken func(token string)) (string, string, error)
+	EditAppCallback   func(ctx context.Context, name, prompt string, cavemanOverride *bool, onToken func(token string)) error
 	RenameAppCallback func(oldName, newName string) (string, error)
 	LinkAppCallback   func(path string) (string, error)
 	UnlinkAppCallback func(name string) error
@@ -105,7 +105,11 @@ func NotifyReload(appName string) {
 	}
 }
 
-func injectLiveReload(html string, ssePath string, appName string) string {
+func injectLiveReload(html string, ssePath string, appName string, streamingDefault bool) string {
+	checked := "checked"
+	if !streamingDefault {
+		checked = ""
+	}
 	script := fmt.Sprintf(`
 <!-- Injected by Promptyly Live Reload & Prompt Console -->
 <div id="promptyly-console-widget" style="position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -133,7 +137,10 @@ func injectLiveReload(html string, ssePath string, appName string) string {
 
       <p id="promptyly-prompt-label" style="color: #94a3b8; font-size: 0.85rem; margin: 0; line-height: 1.4;">Describe modifications you want to make to this app:</p>
       <textarea id="promptyly-input" placeholder="e.g., Make the background dark, add a reset button..." style="width: 100%%; height: 100px; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #f8fafc; font-family: inherit; font-size: 0.9rem; resize: none; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='rgba(99, 102, 241, 0.5)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.1)'"></textarea>
-      
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+        <input type="checkbox" id="promptyly-streaming" %s style="width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;">
+        <label for="promptyly-streaming" style="font-size: 0.8rem; color: #94a3b8; cursor: pointer; user-select: none;">Enable Streaming</label>
+      </div>
       <button id="promptyly-submit" style="width: 100%%; padding: 10px; border-radius: 8px; background: linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%); border: none; color: white; font-weight: 600; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); outline: none;">
         Apply Changes
       </button>
@@ -164,6 +171,7 @@ func injectLiveReload(html string, ssePath string, appName string) string {
   const card = document.getElementById('promptyly-card');
   const textarea = document.getElementById('promptyly-input');
   const submitBtn = document.getElementById('promptyly-submit');
+  const streamingChk = document.getElementById('promptyly-streaming');
   const statusBox = document.getElementById('promptyly-status-box');
   const statusTitle = document.getElementById('promptyly-status-title');
   const statusDesc = document.getElementById('promptyly-status-desc');
@@ -213,13 +221,18 @@ func injectLiveReload(html string, ssePath string, appName string) string {
     let totalTokens = 0;
 
     try {
+      const useStreaming = streamingChk ? streamingChk.checked : true;
       const response = await fetch('/api/apps/edit', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Promptyly-Token': apiToken
         },
-        body: JSON.stringify({ name: appName, prompt: prompt })
+        body: JSON.stringify({ 
+          name: appName, 
+          prompt: prompt,
+          no_stream: !useStreaming
+        })
       });
 
       if (!response.ok) {
@@ -281,7 +294,7 @@ func injectLiveReload(html string, ssePath string, appName string) string {
   });
 })();
 </script>
-`, ssePath, appName, apiToken)
+`, ssePath, appName, apiToken, checked)
 
 	lower := strings.ToLower(html)
 	idx := strings.LastIndex(lower, "</body>")
@@ -487,9 +500,21 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     </button>`, name)
 				publishCheckboxPart = fmt.Sprintf(`
+                    <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="edit-streaming-%s" checked style="width: 16px; height: 16px; accent-color: var(--accent-color); cursor: pointer;">
+                            <label for="edit-streaming-%s" style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">Enable Streaming</label>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="edit-publish-%s" style="width: 16px; height: 16px; accent-color: var(--accent-color); cursor: pointer;">
+                            <label for="edit-publish-%s" style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">Publish to remote registry after update</label>
+                        </div>
+                    </div>`, name, name, name, name)
+			} else {
+				publishCheckboxPart = fmt.Sprintf(`
                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px;">
-                        <input type="checkbox" id="edit-publish-%s" style="width: 16px; height: 16px; accent-color: var(--accent-color); cursor: pointer;">
-                        <label for="edit-publish-%s" style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">Publish to remote registry after update</label>
+                        <input type="checkbox" id="edit-streaming-%s" checked style="width: 16px; height: 16px; accent-color: var(--accent-color); cursor: pointer;">
+                        <label for="edit-streaming-%s" style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none;">Enable Streaming</label>
                     </div>`, name, name)
 			}
 
@@ -1074,6 +1099,16 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         Generate App
                     </button>
                 </div>
+                <div style="margin-top: 10px; display: flex; gap: 20px; align-items: center; font-size: 0.85rem; color: var(--text-secondary);">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="gen-streaming" checked style="margin-right: 6px;">
+                        Enable Streaming
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="gen-caveman" style="margin-right: 6px;">
+                        Caveman Mode (Terse)
+                    </label>
+                </div>
                 <div class="gen-loading" id="gen-loading" style="display: none;">
                     <div class="gen-loading-spinner"></div>
                     <div class="gen-loading-text">
@@ -1203,6 +1238,14 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
                         <input type="checkbox" id="set-check-remote" style="width: auto;">
                         <label class="form-label" style="text-transform: none; margin-bottom: 0;">Check Remote Registry Before Generating New Apps</label>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="set-enable-streaming" style="width: auto;">
+                        <label class="form-label" style="text-transform: none; margin-bottom: 0;">Enable AI Streaming (Live token updates)</label>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="set-enable-caveman" style="width: auto;">
+                        <label class="form-label" style="text-transform: none; margin-bottom: 0;">Enable Caveman Mode (terse AI replies, faster generation)</label>
                     </div>
                     <div class="form-group" style="margin-top: 12px;">
                         <label class="form-label">Version Sync Status</label>
@@ -1600,7 +1643,17 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
             document.getElementById('set-sharing-url').value = activeConfig.sharing_server_url || '';
             document.getElementById('set-sharing-token').value = activeConfig.sharing_token || '';
             document.getElementById('set-check-remote').checked = !!activeConfig.check_remote_first;
+            document.getElementById('set-enable-streaming').checked = !activeConfig.quiet;
+            document.getElementById('set-enable-caveman').checked = !!activeConfig.enable_caveman;
             
+            // Also sync dashboard checkboxes
+            if (document.getElementById('gen-streaming')) {
+                document.getElementById('gen-streaming').checked = !activeConfig.quiet;
+            }
+            if (document.getElementById('gen-caveman')) {
+                document.getElementById('gen-caveman').checked = !!activeConfig.enable_caveman;
+            }
+
             renderProvidersList();
             clearEditor();
         } catch (err) {
@@ -1617,6 +1670,8 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         activeConfig.sharing_server_url = document.getElementById('set-sharing-url').value.trim();
         activeConfig.sharing_token = document.getElementById('set-sharing-token').value.trim();
         activeConfig.check_remote_first = document.getElementById('set-check-remote').checked;
+        activeConfig.quiet = !document.getElementById('set-enable-streaming').checked;
+        activeConfig.enable_caveman = document.getElementById('set-enable-caveman').checked;
 
         try {
             const res = await fetch('/api/config', {
@@ -1903,7 +1958,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         const button = document.getElementById('edit-submit-' + name);
         const loading = document.getElementById('edit-loading-' + name);
         const publishChk = document.getElementById('edit-publish-' + name);
+        const streamingChk = document.getElementById('edit-streaming-' + name);
         const shouldPublish = publishChk && publishChk.checked;
+        const useStreaming = streamingChk ? streamingChk.checked : true;
 
         if (!input || !input.value.trim()) return;
 
@@ -1918,40 +1975,74 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     'Content-Type': 'application/json',
                     'X-Promptyly-Token': API_TOKEN
                 },
-                body: JSON.stringify({ name: name, prompt: input.value.trim() })
+                body: JSON.stringify({ 
+                    name: name, 
+                    prompt: input.value.trim(),
+                    no_stream: !useStreaming
+                })
             });
-            if (res.ok) {
-                if (shouldPublish) {
-                    loading.innerHTML = '<div class="spinner"></div> Publishing application to registry...';
-                    try {
-                        const pubRes = await fetch('/api/apps/publish', {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'X-Promptyly-Token': API_TOKEN
-                            },
-                            body: JSON.stringify({ name: name })
-                        });
-                        if (pubRes.ok) {
-                            const data = await pubRes.json();
-                            alert('Success! Application updated and successfully published to the registry!\nLive URL: ' + data.liveUrl + '\nDetail Page: ' + data.detailUrl);
-                        } else {
-                            const txt = await pubRes.text();
-                            alert('Application updated successfully, but publishing failed: ' + txt);
-                        }
-                    } catch (pubErr) {
-                        alert('Application updated successfully, but publishing encountered an error: ' + pubErr.message);
-                    }
-                } else {
-                    alert('Application updated successfully!');
-                }
-                window.location.reload();
-            } else {
+
+            if (!res.ok) {
                 const txt = await res.text();
-                alert('Failed to update: ' + txt);
-                input.disabled = false;
-                button.disabled = false;
-                loading.style.display = 'none';
+                throw new Error(txt || 'Server error ' + res.status);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let totalTokens = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+
+                    try {
+                        const chunk = JSON.parse(trimmed);
+                        if (chunk.type === 'token') {
+                            totalTokens++;
+                            loading.innerHTML = '<div class="spinner"></div> Generating tokens... (' + totalTokens + ')';
+                        } else if (chunk.type === 'error') {
+                            throw new Error(chunk.error);
+                        } else if (chunk.type === 'success') {
+                            if (shouldPublish) {
+                                loading.innerHTML = '<div class="spinner"></div> Publishing application to registry...';
+                                try {
+                                    const pubRes = await fetch('/api/apps/publish', {
+                                        method: 'POST',
+                                        headers: { 
+                                            'Content-Type': 'application/json',
+                                            'X-Promptyly-Token': API_TOKEN
+                                        },
+                                        body: JSON.stringify({ name: name })
+                                    });
+                                    if (pubRes.ok) {
+                                        const data = await pubRes.json();
+                                        alert('Success! Application updated and successfully published to the registry!\nLive URL: ' + data.liveUrl + '\nDetail Page: ' + data.detailUrl);
+                                    } else {
+                                        const txt = await pubRes.text();
+                                        alert('Application updated successfully, but publishing failed: ' + txt);
+                                    }
+                                } catch (pubErr) {
+                                    alert('Application updated successfully, but publishing encountered an error: ' + pubErr.message);
+                                }
+                            } else {
+                                alert('Application updated successfully!');
+                            }
+                            window.location.reload();
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse chunk:', trimmed, e);
+                    }
+                }
             }
         } catch (err) {
             alert('Error updating: ' + err.message);
@@ -2058,12 +2149,19 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         const promptInput = document.getElementById('gen-prompt');
         const submitBtn = document.getElementById('btn-gen-submit');
         const loading = document.getElementById('gen-loading');
+        const streamingChk = document.getElementById('gen-streaming');
+        const cavemanChk = document.getElementById('gen-caveman');
+        const loadingText = document.querySelector('#gen-loading .gen-loading-text span');
 
         if (!promptInput || !promptInput.value.trim()) return;
+
+        const useStreaming = streamingChk ? streamingChk.checked : true;
+        const useCaveman = cavemanChk ? cavemanChk.checked : false;
 
         promptInput.disabled = true;
         submitBtn.disabled = true;
         loading.style.display = 'flex';
+        if (loadingText) loadingText.textContent = 'Contacting server...';
 
         try {
             const res = await fetch('/api/apps/create', {
@@ -2072,18 +2170,51 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     'Content-Type': 'application/json',
                     'X-Promptyly-Token': API_TOKEN
                 },
-                body: JSON.stringify({ prompt: promptInput.value.trim() })
+                body: JSON.stringify({ 
+                    prompt: promptInput.value.trim(),
+                    no_stream: !useStreaming,
+                    caveman: useCaveman
+                })
             });
-            if (res.ok) {
-                const data = await res.json();
-                alert('Application "' + data.appName + '" created successfully!');
-                window.location.reload();
-            } else {
+
+            if (!res.ok) {
                 const txt = await res.text();
-                alert('Generation failed: ' + txt);
-                promptInput.disabled = false;
-                submitBtn.disabled = false;
-                loading.style.display = 'none';
+                throw new Error(txt || 'Server error ' + res.status);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let totalTokens = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+
+                    try {
+                        const chunk = JSON.parse(trimmed);
+                        if (chunk.type === 'token') {
+                            totalTokens++;
+                            if (loadingText) loadingText.textContent = 'Generating tokens... (' + totalTokens + ')';
+                        } else if (chunk.type === 'error') {
+                            throw new Error(chunk.error);
+                        } else if (chunk.type === 'success') {
+                            alert('Application "' + chunk.appName + '" created successfully!');
+                            window.location.reload();
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse chunk:', trimmed, e);
+                    }
+                }
             }
         } catch (err) {
             alert('Error generating: ' + err.message);
@@ -2196,11 +2327,20 @@ func appsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 
 		ssePath := fmt.Sprintf("/apps/%s/_promptyly/events", appName)
-		_, _ = w.Write([]byte(injectLiveReload(string(data), ssePath, appName)))
+		_, _ = w.Write([]byte(injectLiveReload(string(data), ssePath, appName, !cfg.Quiet)))
 		return
 	}
 
 	fileServerPath := filepath.Join(appDir, filepath.Clean(relPath))
+	fmt.Printf("[DEBUG] Serving static resource: %s (path: %s)\n", relPath, fileServerPath)
+
+	// Check if file exists to provide better error reporting than default ServeFile
+	if info, err := os.Stat(fileServerPath); os.IsNotExist(err) || info.IsDir() {
+		fmt.Printf("[DEBUG] ❌ File not found: %s\n", fileServerPath)
+		http.Error(w, fmt.Sprintf("File not found: %s", relPath), http.StatusNotFound)
+		return
+	}
+
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	http.ServeFile(w, r, fileServerPath)
 }
@@ -2260,6 +2400,7 @@ func withAuth(next http.HandlerFunc) http.HandlerFunc {
 // StartDevServer launches a local static server on the specified port.
 // If the port is occupied, it returns nil error (assuming it's already running in the background/another process).
 func StartDevServer(defaultPort int) (int, error) {
+	fmt.Printf("[DEBUG] Starting Dev Server on port %d\n", defaultPort)
 	initToken()
 
 	bindAddr := "127.0.0.1"
@@ -2293,6 +2434,7 @@ func StartDevServer(defaultPort int) (int, error) {
 	mux.HandleFunc("/api/protocol/register", withAuth(apiProtocolRegisterHandler))
 	mux.HandleFunc("/api/protocol/unregister", withAuth(apiProtocolUnregisterHandler))
 	mux.HandleFunc("/api/config", withAuth(apiConfigHandler))
+	mux.HandleFunc("/api/shutdown", withAuth(apiShutdownHandler))
 	mux.HandleFunc("/api/version/check-sync", withAuth(apiVersionCheckSyncHandler))
 
 	go func() {
@@ -2363,7 +2505,9 @@ func apiCreateAppHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Prompt string `json:"prompt"`
+		Prompt   string `json:"prompt"`
+		Caveman  *bool  `json:"caveman,omitempty"`
+		NoStream bool   `json:"no_stream,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2376,20 +2520,23 @@ func apiCreateAppHandler(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 
 	var mu sync.Mutex
-	onToken := func(token string) {
-		mu.Lock()
-		defer mu.Unlock()
-		msg, _ := json.Marshal(map[string]interface{}{
-			"type":  "token",
-			"token": token,
-		})
-		_, _ = w.Write(append(msg, '\n'))
-		if flusher != nil {
-			flusher.Flush()
+	var onToken func(token string)
+	if !req.NoStream {
+		onToken = func(token string) {
+			mu.Lock()
+			defer mu.Unlock()
+			msg, _ := json.Marshal(map[string]interface{}{
+				"type":  "token",
+				"token": token,
+			})
+			_, _ = w.Write(append(msg, '\n'))
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
 
-	appName, appPath, err := CreateAppCallback(r.Context(), req.Prompt, onToken)
+	appName, appPath, err := CreateAppCallback(r.Context(), req.Prompt, req.Caveman, onToken)
 	if err != nil {
 		mu.Lock()
 		msg, _ := json.Marshal(map[string]interface{}{
@@ -2431,8 +2578,10 @@ func apiEditAppHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name   string `json:"name"`
-		Prompt string `json:"prompt"`
+		Name     string `json:"name"`
+		Prompt   string `json:"prompt"`
+		Caveman  *bool  `json:"caveman,omitempty"`
+		NoStream bool   `json:"no_stream,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2445,20 +2594,23 @@ func apiEditAppHandler(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 
 	var mu sync.Mutex
-	onToken := func(token string) {
-		mu.Lock()
-		defer mu.Unlock()
-		msg, _ := json.Marshal(map[string]interface{}{
-			"type":  "token",
-			"token": token,
-		})
-		_, _ = w.Write(append(msg, '\n'))
-		if flusher != nil {
-			flusher.Flush()
+	var onToken func(token string)
+	if !req.NoStream {
+		onToken = func(token string) {
+			mu.Lock()
+			defer mu.Unlock()
+			msg, _ := json.Marshal(map[string]interface{}{
+				"type":  "token",
+				"token": token,
+			})
+			_, _ = w.Write(append(msg, '\n'))
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
 
-	err := EditAppCallback(r.Context(), req.Name, req.Prompt, onToken)
+	err := EditAppCallback(r.Context(), req.Name, req.Prompt, req.Caveman, onToken)
 	if err != nil {
 		mu.Lock()
 		msg, _ := json.Marshal(map[string]interface{}{
@@ -2638,6 +2790,30 @@ func apiConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func apiShutdownHandler(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Server is shutting down...",
+	})
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		fmt.Println("🛑 Shutdown requested via API. Exiting...")
+		os.Exit(0)
+	}()
 }
 
 func apiVersionCheckSyncHandler(w http.ResponseWriter, r *http.Request) {

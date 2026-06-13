@@ -26,7 +26,7 @@ type claudeRequest struct {
 	MaxTokens   int             `json:"max_tokens"`
 	System      string          `json:"system,omitempty"`
 	Messages    []claudeMessage `json:"messages"`
-	Temperature float64         `json:"temperature,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 }
 
@@ -55,15 +55,27 @@ func (c *ClaudeClient) Generate(ctx context.Context, systemPrompt, userPrompt st
 
 	url := "https://api.anthropic.com/v1/messages"
 
+	maxTokens := 8192
+	// Advanced 2026 models like Opus 4.x support much higher output
+	if strings.Contains(c.Config.Model, "opus") || strings.Contains(c.Config.Model, "4-") {
+		maxTokens = 32768
+	}
+
 	reqBody := claudeRequest{
 		Model:     c.Config.Model,
-		MaxTokens: 4000,
+		MaxTokens: maxTokens,
 		System:    systemPrompt,
 		Messages: []claudeMessage{
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature: 0.2,
-		Stream:      onToken != nil,
+		Stream: onToken != nil,
+	}
+
+	// Some models (like o1 or newer reasoning/opus models) deprecate or don't support temperature
+	isReasoning := strings.HasPrefix(c.Config.Model, "o1-") || strings.Contains(c.Config.Model, "thinking") || strings.Contains(c.Config.Model, "opus")
+	if !isReasoning {
+		temp := 0.2
+		reqBody.Temperature = &temp
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)

@@ -29,7 +29,8 @@ type geminiSystemInstruction struct {
 }
 
 type geminiGenerationConfig struct {
-	Temperature float64 `json:"temperature,omitempty"`
+	Temperature     *float64 `json:"temperature,omitempty"`
+	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
 }
 
 type geminiRequest struct {
@@ -74,8 +75,15 @@ func (c *GeminiClient) Generate(ctx context.Context, systemPrompt, userPrompt st
 			},
 		},
 		GenerationConfig: &geminiGenerationConfig{
-			Temperature: 0.2,
+			MaxOutputTokens: 8192,
 		},
+	}
+
+	// Some models (like o1 or reasoning/opus models) deprecate or don't support temperature
+	isReasoning := strings.HasPrefix(c.Config.Model, "o1-") || strings.Contains(c.Config.Model, "thinking") || strings.Contains(c.Config.Model, "opus")
+	if !isReasoning {
+		temp := 0.2
+		reqBody.GenerationConfig.Temperature = &temp
 	}
 
 	if systemPrompt != "" {

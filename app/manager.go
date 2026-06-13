@@ -132,11 +132,15 @@ func CreateApp(ctx context.Context, cfg *config.Config, prompt string, onToken f
 
 	systemPrompt := `You are an expert Frontend Web Developer AI.
 Your task is to build a fully functional, self-contained, responsive, and visually stunning web application based on the user's prompt.
-You must return your output using specific XML tags:
+You must return your output using specific XML tags. This is MANDATORY for all files, including index.html.
 For each code file, wrap it in:
 <file name="filename">
 ... code ...
 </file>
+
+- IMPORTANT: EVERY piece of code or content you generate MUST be inside a <file> tag. Do NOT output raw code outside of these tags.
+- IMPORTANT: Do NOT wrap the code inside the <file> tags with markdown code blocks (like ` + "```" + `javascript). Provide the raw file content only.
+- For each app, you MUST provide at least an index.html. If you decide to split code into multiple files (like style.css or game.js), you MUST provide a separate <file> tag for each one.
 
 For a concise summary of your changes, wrap it in:
 <summary>
@@ -153,6 +157,15 @@ Follow these guidelines:
    Use this endpoint if the application requires state persistence (e.g. keeping notes, todos, etc.) so that it survives reloads.
 `
 
+	if cfg.EnableCaveman {
+		systemPrompt += `
+[Caveman Mode Enabled]
+- Do NOT include any conversational text, pleasantries, explanations, or commentary.
+- Be extremely terse and token-efficient.
+- Output ONLY the required <file> tags containing your code, and a maximum 1-sentence <summary>.
+`
+	}
+
 	fmt.Printf("Generating application '%s' using provider '%s' (model: %s)...\n", appName, prov, provCfg.Model)
 	resp, err := client.Generate(ctx, systemPrompt, prompt, onToken)
 	if err != nil {
@@ -163,14 +176,21 @@ Follow these guidelines:
 		return "", "", fmt.Errorf("agent failed to generate any files. Raw summary: %s", resp.Summary)
 	}
 
-	// Write files
+	fmt.Printf("AI generated %d files. Starting write to: %s\n", len(resp.Files), appDir)
+	
+	// Save full raw response for debugging
+	_ = os.WriteFile(filepath.Join(appDir, "response.txt"), []byte(resp.RawText), 0644)
+	
 	var filesWritten []string
 	for filename, content := range resp.Files {
 		fullPath := filepath.Join(appDir, filename)
+		fmt.Printf("[DEBUG] Preparing to write file: %s (Target: %s)\n", filename, fullPath)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			fmt.Printf("[DEBUG] ❌ Failed to create directory for %s: %v\n", filename, err)
 			return "", "", err
 		}
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			fmt.Printf("[DEBUG] ❌ Failed to write file %s: %v\n", filename, err)
 			return "", "", err
 		}
 		filesWritten = append(filesWritten, filename)
@@ -310,11 +330,15 @@ The current code files in the directory are:
 ` + filesContext.String() + `
 
 Return ONLY the files you modified or created. You do not need to return files that remain unchanged.
-Return your output using specific XML tags:
+Return your output using specific XML tags. This is MANDATORY for all files, including index.html.
 For each code file, wrap it in:
 <file name="filename">
 ... code ...
 </file>
+
+- IMPORTANT: EVERY piece of code or content you generate MUST be inside a <file> tag. Do NOT output raw code outside of these tags.
+- IMPORTANT: Do NOT wrap the code inside the <file> tags with markdown code blocks (like ` + "```" + `javascript). Provide the raw file content only.
+- For each app, you MUST provide at least an index.html. If you decide to split code into multiple files (like style.css or game.js), you MUST provide a separate <file> tag for each one.
 
 For a concise summary of your changes, wrap it in:
 <summary>
@@ -328,6 +352,15 @@ Rules:
 4. For data persistence, use '_promptyly/api/db' (GET to fetch, POST with body to save, relative to the current path) if applicable.
 `
 
+	if cfg.EnableCaveman {
+		systemPrompt += `
+[Caveman Mode Enabled]
+- Do NOT include any conversational text, pleasantries, explanations, or commentary.
+- Be extremely terse and token-efficient.
+- Output ONLY the required <file> tags containing your code, and a maximum 1-sentence <summary>.
+`
+	}
+
 	fmt.Printf("Applying edits using provider '%s' (model: %s)...\n", prov, provCfg.Model)
 	resp, err := client.Generate(ctx, systemPrompt, editPrompt, onToken)
 	if err != nil {
@@ -338,13 +371,21 @@ Rules:
 		return fmt.Errorf("agent did not suggest any changes. Raw summary: %s", resp.Summary)
 	}
 
+	fmt.Printf("[DEBUG] AI suggested %d modified files.\n", len(resp.Files))
+
+	// Save full raw response for debugging
+	_ = os.WriteFile(filepath.Join(appDir, "response.txt"), []byte(resp.RawText), 0644)
+
 	var filesWritten []string
 	for filename, content := range resp.Files {
 		fullPath := filepath.Join(appDir, filename)
+		fmt.Printf("[DEBUG] Preparing to write file: %s (Target: %s)\n", filename, fullPath)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			fmt.Printf("[DEBUG] ❌ Failed to create directory for %s: %v\n", filename, err)
 			return err
 		}
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			fmt.Printf("[DEBUG] ❌ Failed to write file %s: %v\n", filename, err)
 			return err
 		}
 		filesWritten = append(filesWritten, filename)
@@ -430,6 +471,8 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 	fmt.Println("Describe changes you want to make (e.g., 'make the font larger', 'add a dark mode').")
 	fmt.Println("Available commands:")
 	fmt.Println("  .publish [desc] - Publish the app to the remote registry (optionally with description)")
+	fmt.Println("  .caveman        - Toggle Caveman Mode (terse AI replies, faster generation)")
+	fmt.Println("  .quiet          - Toggle Quiet Mode (suppress streaming tokens and graph)")
 	fmt.Println("  .reload         - Manually trigger browser hot-reload")
 	fmt.Println("  .exit           - Stop the dev server and exit interactive mode (or type 'exit')")
 	fmt.Println("-----------------------------------------")
@@ -449,6 +492,28 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 		if input == ".exit" || strings.ToLower(input) == "exit" {
 			fmt.Println("Stopping server. Goodbye!")
 			break
+		}
+
+		if input == ".caveman" {
+			cfg.EnableCaveman = !cfg.EnableCaveman
+			_ = config.SaveConfig(cfg)
+			statusStr := "disabled"
+			if cfg.EnableCaveman {
+				statusStr = "enabled"
+			}
+			fmt.Printf("Caveman Mode %s!\n\n", statusStr)
+			continue
+		}
+
+		if input == ".quiet" {
+			cfg.Quiet = !cfg.Quiet
+			_ = config.SaveConfig(cfg)
+			statusStr := "disabled"
+			if cfg.Quiet {
+				statusStr = "enabled"
+			}
+			fmt.Printf("Quiet Mode %s!\n\n", statusStr)
+			continue
 		}
 
 		if input == ".reload" {
@@ -483,7 +548,7 @@ func InteractiveSession(cfg *config.Config, appName string) error {
 		}
 
 		fmt.Printf("\n[AI Working...] Processing request: '%s'\n", input)
-		if err := sendServerEditRequest(port, appName, input); err != nil {
+		if err := sendServerEditRequest(port, appName, input, cfg.Quiet, cfg.Quiet); err != nil {
 			fmt.Printf("❌ Error: %v\n\n", err)
 		} else {
 			fmt.Println("✅ Changes applied and committed to git!")
@@ -894,7 +959,7 @@ func checkAndDownloadRemote(cfg *config.Config, appName string) (string, error) 
 	return importedName, nil
 }
 
-func sendServerEditRequest(port int, appName, prompt string) error {
+func sendServerEditRequest(port int, appName, prompt string, quiet, noStream bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -907,9 +972,10 @@ func sendServerEditRequest(port int, appName, prompt string) error {
 	token := strings.TrimSpace(string(data))
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/apps/edit", port)
-	reqBody, _ := json.Marshal(map[string]string{
-		"name":   appName,
-		"prompt": prompt,
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"name":      appName,
+		"prompt":    prompt,
+		"no_stream": noStream,
 	})
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
@@ -964,7 +1030,7 @@ func sendServerEditRequest(port int, appName, prompt string) error {
 				continue
 			}
 
-			if t == "token" {
+			if t == "token" && !quiet {
 				totalTokens++
 				intervalTokens++
 

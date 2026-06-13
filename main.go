@@ -32,17 +32,23 @@ func main() {
 	}
 
 	// Register API callbacks for the background daemon
-	server.CreateAppCallback = func(ctx context.Context, prompt string, onToken func(token string)) (string, string, error) {
+	server.CreateAppCallback = func(ctx context.Context, prompt string, cavemanOverride *bool, onToken func(token string)) (string, string, error) {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return "", "", fmt.Errorf("failed to reload config: %v", err)
 		}
+		if cavemanOverride != nil {
+			freshCfg.EnableCaveman = *cavemanOverride
+		}
 		return app.CreateApp(ctx, freshCfg, prompt, onToken)
 	}
-	server.EditAppCallback = func(ctx context.Context, name, prompt string, onToken func(token string)) error {
+	server.EditAppCallback = func(ctx context.Context, name, prompt string, cavemanOverride *bool, onToken func(token string)) error {
 		freshCfg, err := config.LoadConfig()
 		if err != nil {
 			return fmt.Errorf("failed to reload config: %v", err)
+		}
+		if cavemanOverride != nil {
+			freshCfg.EnableCaveman = *cavemanOverride
 		}
 		return app.EditApp(ctx, freshCfg, name, prompt, onToken)
 	}
@@ -195,13 +201,33 @@ func main() {
 
 	case "create":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: promptyly create \"<prompt>\"")
+			fmt.Println("Usage: promptyly create \"<prompt>\" [--caveman] [--quiet | --no-stream]")
 			return
 		}
-		promptVal := os.Args[2]
+		promptVal := ""
+		cavemanVal := false
+		noStream := false
+		for i := 2; i < len(os.Args); i++ {
+			if os.Args[i] == "--caveman" {
+				cavemanVal = true
+			} else if os.Args[i] == "--quiet" || os.Args[i] == "--no-stream" {
+				noStream = true
+				cfg.Quiet = true
+			} else {
+				promptVal = os.Args[i]
+			}
+		}
+		if promptVal == "" {
+			fmt.Println("Usage: promptyly create \"<prompt>\" [--caveman] [--quiet | --no-stream]")
+			return
+		}
 		fmt.Println("Generating application via Promptyly server...")
-		reqBody, _ := json.Marshal(map[string]string{"prompt": promptVal})
-		appName, _, err := streamCreateRequest(port, reqBody)
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"prompt":    promptVal,
+			"caveman":   &cavemanVal,
+			"no_stream": noStream,
+		})
+		appName, _, err := streamCreateRequest(port, reqBody, cfg.Quiet)
 		if err != nil {
 			fmt.Printf("❌ Creation failed: %v\n", err)
 			os.Exit(1)
@@ -219,10 +245,21 @@ func main() {
 
 	case "run":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: promptyly run <app-name>")
+			fmt.Println("Usage: promptyly run <app-name> [--quiet | --no-stream]")
 			return
 		}
-		appName := os.Args[2]
+		appName := ""
+		for i := 2; i < len(os.Args); i++ {
+			if os.Args[i] == "--quiet" || os.Args[i] == "--no-stream" {
+				cfg.Quiet = true
+			} else {
+				appName = os.Args[i]
+			}
+		}
+		if appName == "" {
+			fmt.Println("Usage: promptyly run <app-name> [--quiet | --no-stream]")
+			return
+		}
 		err = ensureServerRunning(port)
 		if err != nil {
 			fmt.Printf("❌ Failed to start background server: %v\n", err)
@@ -389,6 +426,19 @@ func main() {
 		fmt.Printf("🚀 Promptyly background server/API running on http://127.0.0.1:%d\n", port)
 		fmt.Println("Press Ctrl+C to exit.")
 		select {}
+
+	case "shutdown":
+		_, err = sendServerRequest(port, "POST", "/api/shutdown", nil)
+		if err != nil {
+			fmt.Printf("❌ Shutdown failed: %v (Is the server already stopped?)\n", err)
+		} else {
+			fmt.Println("✅ Shutdown command sent.")
+		}
+		return
+
+	case "rebuild":
+		handleRebuild(cfg, port)
+		return
 
 	case "publish":
 		var appName string
@@ -565,7 +615,9 @@ Commands:
   version                 Show the version of Promptyly.
   upgrade                 Checks for updates and upgrades the CLI in-place.
   create "<prompt>"       Generates a new app, starts the server and begins interactive editing.
+                          Flags: --quiet, --no-stream, --caveman
   run <app-name>          Runs the local dev server and starts the interactive editing terminal.
+                          Flags: --quiet, --no-stream
   serve                   Starts the background dev server and REST API daemon.
   list                    Lists all locally generated applications.
   delete <app-name>       Deletes the application locally and from the remote registry.
@@ -577,6 +629,8 @@ Commands:
   register                Registers the prompt:// URL scheme for browser-level deep links.
   unregister              Unregisters the prompt:// URL scheme from the operating system.
   uninstall               Stops the daemon and fully removes Promptyly from the system.
+  rebuild                 Rebuilds Promptyly from local source and restarts the daemon.
+  shutdown                Stops the background daemon/API server.
   config setup            Interactive setup guide for API Keys and LLM providers.
   config set <key> <val>  Manually set configuration settings.
   config show             Show current configuration details.
@@ -701,23 +755,24 @@ func handleConfigSetup(cfg *config.Config) {
 
 	// 1. Choose Provider
 	fmt.Println("Select default LLM provider:")
-	fmt.Println("1) Gemini (Recommended - Google)")
-	fmt.Println("2) Claude (Anthropic)")
-	fmt.Println("3) Ollama (Local LLM Server)")
-	fmt.Println("4) OpenAI-compatible (LM Studio, Local AI, etc.)")
-	fmt.Println("5) Local Llamafile (Download and set up Qwen2.5-Coder-1.5B CPU coding model - ~1.2GB)")
-	fmt.Println("6) Remote Registry Llamafile (Use the LLM server hosted on your sharing registry)")
-	fmt.Print("Choose option (1-6) [default: 1]: ")
+	fmt.Println("1) Anthropic")
+	fmt.Println("2) OpenAI")
+	fmt.Println("3) Gemini")
+	fmt.Println("4) Ollama (Local LLM Server)")
+	fmt.Println("5) OpenAI compatible (LM Studio, Local AI, etc.)")
+	fmt.Println("6) Local Llamafile (Download and set up Qwen2.5-Coder-1.5B CPU coding model - ~1.2GB)")
+	fmt.Println("7) Remote Registry Llamafile (Use the LLM server hosted on your sharing registry)")
+	fmt.Print("Choose option (1-7) [default: 3]: ")
 
-	choice := "1"
+	choice := "3"
 	if scanner.Scan() {
 		choice = strings.TrimSpace(scanner.Text())
 		if choice == "" {
-			choice = "1"
+			choice = "3"
 		}
 	}
 
-	if choice == "5" {
+	if choice == "6" {
 		err := downloadAndSetupLlamafile(cfg)
 		if err != nil {
 			fmt.Printf("❌ Failed to download model: %v\n", err)
@@ -752,13 +807,17 @@ func handleConfigSetup(cfg *config.Config) {
 
 	provider := "gemini"
 	switch choice {
-	case "2":
+	case "1":
 		provider = "claude"
+	case "2":
+		provider = "openai"
 	case "3":
-		provider = "ollama"
+		provider = "gemini"
 	case "4":
+		provider = "ollama"
+	case "5":
 		provider = "lmstudio"
-	case "6":
+	case "7":
 		provider = "registry"
 	}
 	cfg.DefaultProvider = provider
@@ -785,6 +844,33 @@ func handleConfigSetup(cfg *config.Config) {
 			defaultModel = "gemini-1.5-flash"
 		}
 		fmt.Printf("Enter Gemini Model [default: %s]: ", defaultModel)
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.Model = val
+			} else {
+				pCfg.Model = defaultModel
+			}
+		}
+
+	case "openai":
+		defaultKey := pCfg.APIKey
+		if defaultKey != "" {
+			fmt.Printf("Enter OpenAI API Key [default: %s]: ", maskKey(defaultKey))
+		} else {
+			fmt.Print("Enter OpenAI API Key: ")
+		}
+		if scanner.Scan() {
+			val := strings.TrimSpace(scanner.Text())
+			if val != "" {
+				pCfg.APIKey = val
+			}
+		}
+		defaultModel := pCfg.Model
+		if defaultModel == "" {
+			defaultModel = "gpt-4o"
+		}
+		fmt.Printf("Enter OpenAI Model [default: %s]: ", defaultModel)
 		if scanner.Scan() {
 			val := strings.TrimSpace(scanner.Text())
 			if val != "" {
@@ -1159,8 +1245,11 @@ func handleURL(cfg *config.Config, urlString string) {
 			port = 6071
 		}
 		fmt.Printf("✨ Application not found for '%s'. Creating new application via Promptyly server...\n", targetVal)
-		reqBody, _ := json.Marshal(map[string]string{"prompt": targetVal})
-		appName, _, err := streamCreateRequest(port, reqBody)
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"prompt":    targetVal,
+			"no_stream": cfg.Quiet,
+		})
+		appName, _, err := streamCreateRequest(port, reqBody, cfg.Quiet)
 		if err != nil {
 			fmt.Printf("❌ Failed to create app: %v\n", err)
 			return
@@ -1526,7 +1615,7 @@ func sendServerStreamRequest(port int, method, path string, body []byte, onChunk
 	return nil
 }
 
-func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
+func streamCreateRequest(port int, reqBody []byte, quiet bool) (string, string, error) {
 	var finalResult struct {
 		Success bool
 		AppName string
@@ -1546,7 +1635,7 @@ func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
 			return
 		}
 
-		if t == "token" {
+		if t == "token" && !quiet {
 			totalTokens++
 			intervalTokens++
 
@@ -1605,6 +1694,74 @@ func streamCreateRequest(port int, reqBody []byte) (string, string, error) {
 	}
 
 	return finalResult.AppName, finalResult.AppPath, nil
+}
+
+func handleRebuild(cfg *config.Config, port int) {
+	fmt.Println("🛠️  Rebuilding Promptyly from local source...")
+
+	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
+		fmt.Println("❌ Error: You must run 'rebuild' from the Promptyly source directory (containing go.mod).")
+		return
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("❌ Failed to get home directory: %v\n", err)
+		return
+	}
+
+	binaryName := "promptyly"
+	if runtime.GOOS == "windows" {
+		binaryName = "promptyly.exe"
+	}
+
+	installBinDir := filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "linux" && os.Getenv("PREFIX") != "" { // termux
+		installBinDir = filepath.Join(os.Getenv("PREFIX"), "bin")
+	}
+	installPath := filepath.Join(installBinDir, binaryName)
+
+	fmt.Printf("📦 Target installation path: %s\n", installPath)
+
+	// 1. Stop the daemon
+	fmt.Println("🛑 Stopping background daemon...")
+	_, err = sendServerRequest(port, "POST", "/api/shutdown", nil)
+	if err != nil {
+		// If server is not running, pkill as fallback or just ignore
+		_ = exec.Command("pkill", "-f", "promptyly serve").Run()
+	}
+	time.Sleep(1 * time.Second)
+
+	// 2. Build
+	fmt.Println("⚙️  Compiling binaries...")
+	buildCmd := exec.Command("go", "build", "-o", installPath, "main.go", "sharingclient.go")
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	if err := buildCmd.Run(); err != nil {
+		fmt.Printf("❌ Build failed: %v\n", err)
+		return
+	}
+
+	fmt.Println("✅ Successfully rebuilt and installed!")
+
+	// 3. Restart daemon
+	fmt.Println("🚀 Restarting background daemon...")
+	logFile, err := os.OpenFile("daemon.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: could not open daemon.log for writing: %v\n", err)
+	}
+	
+	cmd := exec.Command(installPath, "serve")
+	if logFile != nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
+	
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("❌ Failed to restart daemon: %v\n", err)
+	} else {
+		fmt.Printf("✨ Daemon restarted (PID: %d). Logs redirected to: %s\n", cmd.Process.Pid, filepath.Join(os.Getenv("PWD"), "daemon.log"))
+	}
 }
 
 func handleUninstall(cfg *config.Config) {
