@@ -10,16 +10,20 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"promptyly/agent"
 	"promptyly/config"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Server struct {
-	store   *Store
-	dataDir string
+	store        *Store
+	dataDir      string
+	llamafileCmd *exec.Cmd
+	llamafileMu  sync.Mutex
 }
 
 func NewServer(store *Store, dataDir string) *Server {
@@ -27,6 +31,65 @@ func NewServer(store *Store, dataDir string) *Server {
 		store:   store,
 		dataDir: dataDir,
 	}
+}
+
+func (s *Server) StartLlamafile() {
+	s.llamafileMu.Lock()
+	defer s.llamafileMu.Unlock()
+
+	if s.llamafileCmd != nil && s.llamafileCmd.Process != nil {
+		return // Already running
+	}
+
+	modelPath := filepath.Join(s.dataDir, "binaries", "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		fmt.Printf("ℹ️ Llamafile model not found at %s. Cannot start LLM server.\n", modelPath)
+		return
+	}
+
+	_ = os.Chmod(modelPath, 0755)
+
+	fmt.Printf("🤖 Starting Llamafile LLM Server on port 6080...\n")
+	cmd := exec.Command("sh", modelPath, "--server", "--port", "6080", "--host", "127.0.0.1", "-c", "2048", "--nobrowser")
+	
+	logPath := filepath.Join(s.dataDir, "llamafile.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err == nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Printf("❌ Failed to start Llamafile LLM Server: %v\n", err)
+		return
+	}
+
+	s.llamafileCmd = cmd
+	fmt.Printf("🤖 Llamafile LLM Server started on http://127.0.0.1:6080 (pid: %d). Logs: %s\n", cmd.Process.Pid, logPath)
+
+	go func() {
+		_ = cmd.Wait()
+		s.llamafileMu.Lock()
+		if s.llamafileCmd == cmd {
+			s.llamafileCmd = nil
+		}
+		s.llamafileMu.Unlock()
+		fmt.Println("🤖 Llamafile LLM Server process exited.")
+	}()
+}
+
+func (s *Server) StopLlamafile() {
+	s.llamafileMu.Lock()
+	defer s.llamafileMu.Unlock()
+
+	if s.llamafileCmd == nil || s.llamafileCmd.Process == nil {
+		return
+	}
+
+	fmt.Printf("🤖 Stopping Llamafile LLM Server (pid: %d)...\n", s.llamafileCmd.Process.Pid)
+	_ = s.llamafileCmd.Process.Kill()
+	s.llamafileCmd = nil
 }
 
 func (s *Server) trackEvent(r *http.Request, category, action, label string) {
@@ -1595,6 +1658,13 @@ func (s *Server) apiAdminUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			"error":   err.Error(),
 		})
 		return
+	}
+
+	// Dynamically control LLM server execution state
+	if req.EnableLlamafile {
+		s.StartLlamafile()
+	} else {
+		s.StopLlamafile()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

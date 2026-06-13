@@ -42,6 +42,7 @@ type ServerConfig struct {
 	RequireAdminApproval  bool `json:"require_admin_approval"`
 	RequireLoginToView    bool `json:"require_login_to_view"`
 	AllowSelfRegistration bool `json:"allow_self_registration"`
+	EnableLlamafile       bool `json:"enable_llamafile"`
 }
 
 type AnalyticsEvent struct {

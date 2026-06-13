@@ -15,6 +15,10 @@ COPY agent/ ./agent/
 COPY history/ ./history/
 COPY urlscheme/ ./urlscheme/
 COPY sharing/ ./sharing/
+COPY bump_version.go version.txt ./
+
+# Increment version revision
+RUN go run bump_version.go
 
 # Compile the sharing server statically
 RUN CGO_ENABLED=0 GOOS=linux go build -o sharing-server ./sharing

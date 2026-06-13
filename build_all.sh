@@ -8,9 +8,7 @@ echo "=================================================="
 # Detect go executable path
 GO_CMD="go"
 if ! command -v go >/dev/null 2>&1; then
-  if [ -x "$HOME/.local/go/bin/go" ]; then
-    GO_CMD="$HOME/.local/go/bin/go"
-  elif [ -x "/usr/local/go/bin/go" ]; then
+  if [ -x "/usr/local/go/bin/go" ]; then
     GO_CMD="/usr/local/go/bin/go"
   else
     echo "❌ Error: Go compiler not found! Please install Go or add it to your PATH."

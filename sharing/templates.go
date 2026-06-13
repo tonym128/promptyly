@@ -1236,6 +1236,10 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
 	if config.AllowSelfRegistration {
 		chkAllowSelfReg = "checked"
 	}
+	chkEnableLlamafile := ""
+	if config.EnableLlamafile {
+		chkEnableLlamafile = "checked"
+	}
 
 	body := fmt.Sprintf(`
         <div style="max-width: 900px; margin: 40px auto; padding: 0 24px; flex-grow: 1; width: 100%%;">
@@ -1320,6 +1324,14 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
                             <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">Allow new users to sign up and create accounts using the main page form.</p>
                         </div>
                     </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <input type="checkbox" id="cfg-enable-llamafile" %s style="margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer;">
+                        <div>
+                            <label for="cfg-enable-llamafile" style="font-weight: 600; cursor: pointer; color: var(--text-primary);">Enable Llamafile LLM Server</label>
+                            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">Run the lightweight Qwen2.5-Coder model directly on the server to support remote app generation via extension/clients.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div style="margin-top: 28px; display: flex; align-items: center; gap: 16px;">
@@ -1357,6 +1369,7 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
                 const requireApproval = document.getElementById('cfg-require-approval').checked;
                 const requireLogin = document.getElementById('cfg-require-login').checked;
                 const allowSelfReg = document.getElementById('cfg-allow-selfreg').checked;
+                const enableLlamafile = document.getElementById('cfg-enable-llamafile').checked;
                 const statusEl = document.getElementById('settings-status');
 
                 statusEl.textContent = "Saving...";
@@ -1370,7 +1383,8 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
                         body: JSON.stringify({
                             require_admin_approval: requireApproval,
                             require_login_to_view: requireLogin,
-                            allow_self_registration: allowSelfReg
+                            allow_self_registration: allowSelfReg,
+                            enable_llamafile: enableLlamafile
                         })
                     });
                     const res = await resp.json();
@@ -1427,8 +1441,7 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
                     alert("Reject failed: " + e);
                 }
             }
-        </script>
-    `, pageViews, linkDownloads, appViews, uploads, searches, eventRows, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, rows)
+    `, pageViews, linkDownloads, appViews, uploads, searches, eventRows, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, chkEnableLlamafile, rows)
 
 	return getHeader("Admin Panel", currentUser) + body + getFooter()
 }

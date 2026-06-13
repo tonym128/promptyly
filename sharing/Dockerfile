@@ -14,7 +14,12 @@ COPY git/ ./git/
 COPY agent/ ./agent/
 COPY history/ ./history/
 COPY urlscheme/ ./urlscheme/
+COPY browser-extension/ ./browser-extension/
 COPY sharing/ ./sharing/
+COPY bump_version.go version.txt ./
+
+# Increment version revision
+RUN go run bump_version.go
 
 # Compile the sharing server statically
 RUN CGO_ENABLED=0 GOOS=linux go build -o sharing-server ./sharing
@@ -45,7 +50,7 @@ RUN if [ "$INCLUDE_LLAMAFILE" = "true" ] ; then \
 # Run Stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates gcompat
 
 WORKDIR /app
 
