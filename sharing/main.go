@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -26,6 +27,41 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Sync()
+}
+
+func startLlamafileServer(dataDir string) {
+	modelPath := filepath.Join(dataDir, "binaries", "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		fmt.Printf("ℹ️ Llamafile model not found at %s. LLM server is not enabled.\n", modelPath)
+		return
+	}
+
+	// Ensure execution permission
+	_ = os.Chmod(modelPath, 0755)
+
+	fmt.Printf("🤖 Starting Llamafile LLM Server using %s...\n", modelPath)
+	cmd := exec.Command(modelPath, "--port", "6080", "--host", "127.0.0.1", "--nobrowser", "-c", "2048")
+	
+	// Direct stdout/stderr to a log file
+	logPath := filepath.Join(dataDir, "llamafile.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err == nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		fmt.Printf("❌ Failed to start Llamafile LLM Server: %v\n", err)
+		return
+	}
+
+	fmt.Printf("🤖 Llamafile LLM Server started on http://127.0.0.1:6080 (pid: %d). Logs: %s\n", cmd.Process.Pid, logPath)
+	
+	go func() {
+		err := cmd.Wait()
+		fmt.Printf("🤖 Llamafile LLM Server process exited: %v\n", err)
+	}()
 }
 
 func main() {
@@ -113,6 +149,9 @@ func main() {
 		}
 		fmt.Printf("   To customize, set ADMIN_USERNAME and ADMIN_PASSWORD environment variables.\n\n")
 	}
+
+	// Start Llamafile background server if available
+	go startLlamafileServer(absDataDir)
 
 	server := NewServer(store, absDataDir)
 	mux := http.NewServeMux()

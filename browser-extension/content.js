@@ -7,6 +7,8 @@
     daemonUrl: 'http://localhost:6071',
     daemonToken: '',
     registryUrl: 'http://localhost:6072',
+    registryToken: '',
+    generateOnRegistry: false,
     interceptLinks: true
   };
 
@@ -246,6 +248,26 @@
     return res;
   }
 
+  // Helper to call remote registry APIs
+  async function registryFetch(endpoint, settings, method = 'GET', body = null) {
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (settings.registryToken) {
+      headers['Authorization'] = 'Bearer ' + settings.registryToken;
+    }
+    const options = { 
+      method, 
+      headers,
+      credentials: 'include'
+    };
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+    const res = await fetch(`${settings.registryUrl}${endpoint}`, options);
+    return res;
+  }
+
   // Shows the overlay modal
   async function showOverlay(rawUri, settings) {
     injectStyles();
@@ -364,10 +386,16 @@
 
   // Render for an unknown prompt (generation request)
   function renderNewPromptView(container, promptText, daemonRunning, settings) {
+    const genMode = settings.generateOnRegistry ? 'Registry Server' : 'Local Daemon';
+    const badgeClass = settings.generateOnRegistry ? 'promptyly-badge-success' : 'promptyly-badge-neutral';
+    
+    // If generating on registry, we don't care if the local daemon is online
+    const canGenerate = settings.generateOnRegistry || daemonRunning;
+
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="promptyly-section">
-          <span class="promptyly-badge promptyly-badge-neutral">New Application Prompt</span>
+          <span class="promptyly-badge ${badgeClass}">New App via ${genMode}</span>
         </div>
         <div class="promptyly-section">
           <span class="promptyly-label">Prompt Description</span>
@@ -376,46 +404,63 @@
           </div>
         </div>
         
-        ${!daemonRunning ? `
+        ${!canGenerate ? `
           <div class="promptyly-badge promptyly-badge-warn" style="width: 100%; text-align: center; padding: 10px;">
             Daemon Offline - Run "promptyly run" to generate
           </div>
         ` : ''}
 
         <div class="promptyly-buttons">
-          <button class="promptyly-btn promptyly-btn-primary" id="btn-gen-app" ${!daemonRunning ? 'disabled' : ''}>
-            Generate Locally
+          <button class="promptyly-btn promptyly-btn-primary" id="btn-gen-app" ${!canGenerate ? 'disabled' : ''}>
+            Generate App
           </button>
         </div>
       </div>
     `;
 
-    if (daemonRunning) {
+    if (canGenerate) {
       document.getElementById('btn-gen-app').addEventListener('click', async (e) => {
         const btn = e.target;
         btn.disabled = true;
-        btn.textContent = 'Generating Application (15-30s)...';
+        btn.textContent = 'Generating Application (15-60s)...';
         
         try {
-          const res = await daemonFetch('/api/apps/create', settings, 'POST', { prompt: promptText });
+          let res;
+          if (settings.generateOnRegistry) {
+            res = await registryFetch('/api/apps/create', settings, 'POST', { prompt: promptText });
+          } else {
+            res = await daemonFetch('/api/apps/create', settings, 'POST', { prompt: promptText });
+          }
+
           if (res.ok) {
             const data = await res.json();
             btn.textContent = 'Success! Opening...';
             btn.style.background = '#10b981';
             setTimeout(() => {
-              window.open(`${settings.daemonUrl}/apps/${data.appName}/`, '_blank');
+              if (settings.generateOnRegistry) {
+                const appUrl = data.url.startsWith('http') ? data.url : `${settings.registryUrl}${data.url}`;
+                window.open(appUrl, '_blank');
+              } else {
+                window.open(`${settings.daemonUrl}/apps/${data.appName}/`, '_blank');
+              }
               document.getElementById('promptyly-overlay-container').remove();
             }, 1000);
           } else {
-            const txt = await res.text();
-            alert('Generation failed: ' + txt);
+            let errorMsg = 'Unknown error';
+            try {
+              const errData = await res.json();
+              errorMsg = errData.error || errorMsg;
+            } catch (_) {
+              errorMsg = await res.text();
+            }
+            alert('Generation failed: ' + errorMsg);
             btn.disabled = false;
-            btn.textContent = 'Generate Locally';
+            btn.textContent = 'Generate App';
           }
         } catch (err) {
           alert('Generation request failed: ' + err.message);
           btn.disabled = false;
-          btn.textContent = 'Generate Locally';
+          btn.textContent = 'Generate App';
         }
       });
     }
@@ -506,16 +551,17 @@
         }
       } else {
         // Not in registry, not installed locally
-        renderNotFoundView(container, appName, daemonRunning);
+        renderNotFoundView(container, appName, daemonRunning, settings);
       }
     } catch (err) {
-      renderNotFoundView(container, appName, daemonRunning);
+      renderNotFoundView(container, appName, daemonRunning, settings);
     }
   }
 
   // Render when app is not found anywhere
-  function renderNotFoundView(container, name, daemonRunning) {
+  function renderNotFoundView(container, name, daemonRunning, settings) {
     const formattedName = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const canGenerate = settings.generateOnRegistry || daemonRunning;
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="promptyly-section">
@@ -531,19 +577,19 @@
           </p>
         </div>
         <div class="promptyly-buttons">
-          <button class="promptyly-btn promptyly-btn-primary" id="btn-create-missing" ${!daemonRunning ? 'disabled' : ''}>
+          <button class="promptyly-btn promptyly-btn-primary" id="btn-create-missing" ${!canGenerate ? 'disabled' : ''}>
             Create App "${formattedName}"
           </button>
         </div>
       </div>
     `;
 
-    if (daemonRunning) {
+    if (canGenerate) {
       document.getElementById('btn-create-missing').addEventListener('click', () => {
         // Prompt for generation details
         const promptText = prompt(`Enter a prompt to generate the application "${formattedName}":`, `A sleek ${formattedName} with clean UI and dark mode`);
         if (promptText) {
-          renderNewPromptView(container, promptText, daemonRunning, DEFAULT_SETTINGS);
+          renderNewPromptView(container, promptText, daemonRunning, settings);
         }
       });
     }

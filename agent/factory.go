@@ -15,7 +15,7 @@ func NewClient(provider string, cfg config.ProviderConfig) (Agent, error) {
 		return NewGeminiClient(cfg), nil
 	case "claude":
 		return NewClaudeClient(cfg), nil
-	case "ollama", "lmstudio", "openai", "custom", "openai-compatible", "llamafile":
+	case "ollama", "lmstudio", "openai", "custom", "openai-compatible", "llamafile", "registry":
 		return NewOpenAIClient(cfg, engineType), nil
 	default:
 		return nil, fmt.Errorf("unknown LLM provider type: %s", engineType)

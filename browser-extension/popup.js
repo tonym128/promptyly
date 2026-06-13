@@ -3,6 +3,8 @@ const DEFAULT_SETTINGS = {
   daemonUrl: 'http://localhost:6071',
   daemonToken: '',
   registryUrl: 'http://localhost:6072',
+  registryToken: '',
+  generateOnRegistry: false,
   interceptLinks: true
 };
 
@@ -12,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('daemon-url').value = settings.daemonUrl;
     document.getElementById('daemon-token').value = settings.daemonToken;
     document.getElementById('registry-url').value = settings.registryUrl;
+    document.getElementById('registry-token').value = settings.registryToken;
+    document.getElementById('generate-on-registry').checked = settings.generateOnRegistry;
     document.getElementById('intercept-links').checked = settings.interceptLinks;
   });
 });
@@ -22,6 +26,8 @@ document.getElementById('save-btn').addEventListener('click', () => {
     daemonUrl: document.getElementById('daemon-url').value.trim() || DEFAULT_SETTINGS.daemonUrl,
     daemonToken: document.getElementById('daemon-token').value.trim(),
     registryUrl: document.getElementById('registry-url').value.trim() || DEFAULT_SETTINGS.registryUrl,
+    registryToken: document.getElementById('registry-token').value.trim(),
+    generateOnRegistry: document.getElementById('generate-on-registry').checked,
     interceptLinks: document.getElementById('intercept-links').checked
   };
 

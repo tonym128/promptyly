@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
+	"promptyly/agent"
 	"promptyly/config"
 	"strings"
 	"time"
@@ -132,6 +136,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/logout", wrap(s.handleLogout))
 	mux.HandleFunc("/upload", wrap(s.handleUpload))
 	mux.HandleFunc("/profile", wrap(s.handleProfile))
+	mux.HandleFunc("/extension", wrap(s.handleExtensionHowTo))
 	mux.HandleFunc("/app/", wrap(s.handleAppDetail))
 	mux.HandleFunc("/admin", wrap(s.handleAdminPanel))
 
@@ -145,6 +150,28 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/apps/upload", wrap(s.apiUploadApp))
 	mux.HandleFunc("/api/apps/download/", wrap(s.apiDownloadApp))
 	mux.HandleFunc("/api/apps/delete/", wrap(s.apiDeleteApp))
+	mux.HandleFunc("/api/apps/create", wrap(s.apiCreateApp))
+	
+	// LLM proxy route
+	targetUrl, _ := url.Parse("http://127.0.0.1:6080")
+	proxy := httputil.NewSingleHostReverseProxy(targetUrl)
+	mux.HandleFunc("/api/llm/", wrap(func(w http.ResponseWriter, r *http.Request) {
+		user := s.getAPIUser(r)
+		if user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Authentication required (active session cookie or Bearer API token)",
+			})
+			return
+		}
+
+		s.trackEvent(r, "llm", "proxy", "completion")
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/llm")
+		proxy.ServeHTTP(w, r)
+	}))
+
 	mux.HandleFunc("/api/version/check", wrap(s.apiVersionCheck))
 
 	// Admin API routes
@@ -214,6 +241,14 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	s.trackEvent(r, "page", "view", "profile")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(RenderProfile(user)))
+}
+
+// handleExtensionHowTo renders the browser extension installation guide.
+func (s *Server) handleExtensionHowTo(w http.ResponseWriter, r *http.Request) {
+	user := s.getLoggedInUser(r)
+	s.trackEvent(r, "page", "view", "extension_howto")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(RenderExtensionHowTo(user)))
 }
 
 // handleLogin renders or processes logins.
@@ -1783,3 +1818,181 @@ Write-Host "🎉 Promptyly has been successfully uninstalled from your system!" 
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(script))
 }
+
+func (s *Server) apiCreateApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := s.getAPIUser(r)
+	if user == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Unauthorized: valid session cookie or API token required",
+		})
+		return
+	}
+
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	if strings.TrimSpace(req.Prompt) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Prompt cannot be empty",
+		})
+		return
+	}
+
+	// Check if llamafile server is running inside container/server on port 6080
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:6080", 1*time.Second)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "LLM generation server is not running or still starting up",
+		})
+		return
+	}
+	conn.Close()
+
+	s.trackEvent(r, "app", "generate", req.Prompt)
+
+	// Slugify prompt to get a safe name
+	appName := slugify(req.Prompt)
+	if len(appName) == 0 {
+		appName = "generated-app"
+	}
+	
+	// Append random timestamp key to name to avoid directory clashes
+	appName = fmt.Sprintf("%s-%d", appName, time.Now().Unix()%1000)
+
+	// Set up agent client
+	provCfg := config.ProviderConfig{
+		Type:  "openai-compatible",
+		URL:   "http://127.0.0.1:6080/v1",
+		Model: "qwen2.5-coder-1.5b-instruct",
+	}
+	client, err := agent.NewClient("llamafile", provCfg)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	// Define system prompt
+	systemPrompt := `You are an expert Frontend Web Developer AI.
+Your task is to build a fully functional, self-contained, responsive, and visually stunning web application based on the user's prompt.
+You must return your output using specific XML tags:
+For each code file, wrap it in:
+<file name="filename">
+... code ...
+</file>
+
+For a concise summary of your changes, wrap it in:
+<summary>
+... summary ...
+</summary>
+
+Follow these guidelines:
+1. Provide a modern, clean, and premium user experience (rich aesthetics, custom font pairings, dark mode or clean themes, smooth animations, cards, glassmorphism, responsive grids).
+2. Avoid placeholders; all logic must be fully written and ready to run.
+3. Use only client-side files (HTML, CSS, JS). You can inject external libraries like Tailwind CSS (via CDN) or Google Fonts, FontAwesome, or Lucide icons if needed.
+`
+
+	resp, err := client.Generate(r.Context(), systemPrompt, req.Prompt, nil)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "LLM generation failed: " + err.Error()})
+		return
+	}
+
+	if len(resp.Files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Agent failed to generate any files."})
+		return
+	}
+
+	// Create zip file
+	zipFilename := fmt.Sprintf("%d-promptyly-pub-%s.zip", time.Now().UnixNano(), appName)
+	zipPath := filepath.Join(s.dataDir, "zips", zipFilename)
+	
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create ZIP: " + err.Error()})
+		return
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	for filename, content := range resp.Files {
+		f, err := zipWriter.Create(filename)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		_, _ = f.Write([]byte(content))
+	}
+	
+	// Add readme
+	f, err := zipWriter.Create("README.md")
+	if err == nil {
+		displayName := strings.Title(strings.ReplaceAll(appName, "-", " "))
+		readme := fmt.Sprintf("# %s\n\nGenerated directly on Registry Server.\nPrompt: %s\n", displayName, req.Prompt)
+		_, _ = f.Write([]byte(readme))
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to finalise ZIP: " + err.Error()})
+		return
+	}
+
+	// Serve the app statically by writing it to s.dataDir/apps/appName
+	appFolder := filepath.Join(s.dataDir, "apps", appName)
+	_ = os.MkdirAll(appFolder, 0755)
+	for filename, content := range resp.Files {
+		fullPath := filepath.Join(appFolder, filename)
+		_ = os.MkdirAll(filepath.Dir(fullPath), 0755)
+		_ = os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	if _, err := s.store.AddApp(user.ID, user.Username, appName, req.Prompt, "Generated directly on Sharing Registry server.", zipFilename); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to save to database: " + err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"appName": appName,
+		"url":     "/apps/" + appName + "/",
+	})
+}
+

@@ -14,6 +14,7 @@ func getHeader(title string, user *User) string {
 		}
 		navLinks = fmt.Sprintf(`
             <a href="/registry" class="nav-link">App Registry</a>
+            <a href="/extension" class="nav-link">Browser Extension</a>
             <span class="user-greeting">Welcome, <strong>%s</strong></span>
             %s
             <a href="/profile" class="nav-link">Profile</a>
@@ -23,6 +24,7 @@ func getHeader(title string, user *User) string {
 	} else {
 		navLinks = `
             <a href="/registry" class="nav-link">App Registry</a>
+            <a href="/extension" class="nav-link">Browser Extension</a>
             <a href="/login" class="nav-link">Login</a>
             <a href="/register" class="nav-btn">Register</a>
         `
@@ -1429,4 +1431,118 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
     `, pageViews, linkDownloads, appViews, uploads, searches, eventRows, chkRequireApproval, chkRequireLogin, chkAllowSelfReg, rows)
 
 	return getHeader("Admin Panel", currentUser) + body + getFooter()
+}
+
+func RenderExtensionHowTo(user *User) string {
+	body := `
+    <div class="content-container" style="max-width: 900px; margin: 40px auto; padding: 20px;">
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 36px; backdrop-filter: blur(20px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);">
+            
+            <!-- Hero Header -->
+            <div style="text-align: center; margin-bottom: 40px; border-bottom: 1px solid var(--border-color); padding-bottom: 32px;">
+                <div style="width: 72px; height: 72px; background: var(--accent-grad); border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 2.2rem; font-weight: 800; color: white; box-shadow: 0 0 30px var(--accent-glow); margin-bottom: 20px;">
+                    P
+                </div>
+                <h1 style="font-size: 2.2rem; font-weight: 700; background: linear-gradient(135deg, #f8fafc 30%, #a5b4fc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em;">Promptyly Link Companion</h1>
+                <p style="color: var(--text-secondary); margin-top: 8px; font-size: 1.1rem; max-width: 600px; margin-left: auto; margin-right: auto; line-height: 1.5;">
+                    The companion browser extension that intercepts <code>prompt://</code> links on any website to run or generate applications in 1-click.
+                </p>
+                
+                <div style="margin-top: 28px;">
+                    <a href="/binaries/promptyly-extension.zip" class="btn-submit" style="display: inline-flex; text-decoration: none; padding: 14px 28px; font-size: 1rem; border-radius: 10px; background: var(--accent-grad);">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        Download Extension ZIP
+                    </a>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">Version 1.0.0 • Works with Chrome, Edge, Brave, and Opera</div>
+                </div>
+            </div>
+
+            <!-- Steps Section -->
+            <div style="display: flex; flex-direction: column; gap: 32px;">
+                <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--text-primary);">How to Install the Extension</h2>
+                
+                <div style="display: grid; grid-template-columns: 1fr; gap: 24px;">
+                    
+                    <!-- Step 1 -->
+                    <div style="display: flex; gap: 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px;">
+                        <div style="width: 36px; height: 36px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0;">
+                            1
+                        </div>
+                        <div>
+                            <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">Extract the ZIP file</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5;">
+                                Download the extension ZIP and extract the contents to a permanent folder on your system (e.g., <code>Documents/promptyly-extension</code>). Do not delete this folder after installation!
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div style="display: flex; gap: 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px;">
+                        <div style="width: 36px; height: 36px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0;">
+                            2
+                        </div>
+                        <div>
+                            <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">Enable Developer Mode</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5;">
+                                Open your browser and navigate to the extensions management page:
+                                <ul style="margin-top: 8px; margin-left: 20px; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+                                    <li>For Google Chrome: type <code>chrome://extensions/</code></li>
+                                    <li>For Microsoft Edge: type <code>edge://extensions/</code></li>
+                                    <li>For Brave: type <code>brave://extensions/</code></li>
+                                </ul>
+                                In the top right corner, toggle the **Developer Mode** switch to **ON**.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div style="display: flex; gap: 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px;">
+                        <div style="width: 36px; height: 36px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0;">
+                            3
+                        </div>
+                        <div>
+                            <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">Load Unpacked Extension</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5;">
+                                Click the **Load Unpacked** button in the top left corner. A file picker will appear. Select the folder where you extracted the extension (the folder containing the <code>manifest.json</code> file).
+                            </p>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Setup Configuration Section -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 32px; margin-top: 8px;">
+                    <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--text-primary); margin-bottom: 16px;">Configure Your Settings</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px;">
+                        Click on the Promptyly extension puzzle icon in your browser toolbar to open the settings panel:
+                    </p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        
+                        <div style="background: rgba(0, 0, 0, 0.15); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px;">
+                            <h4 style="font-size: 1rem; font-weight: 600; color: #a5b4fc; margin-bottom: 8px;">Registry Settings</h4>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
+                                Set <strong>Registry Server URL</strong> to this server's domain/address.
+                                <br><br>
+                                Set <strong>Registry API Token</strong> to your personal developer API token (found on your <a href="/profile" style="color: var(--accent-color); text-decoration: none; font-weight: 600;">Profile page</a>).
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(0, 0, 0, 0.15); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px;">
+                            <h4 style="font-size: 1rem; font-weight: 600; color: #a5b4fc; margin-bottom: 8px;">Registry Generation Mode</h4>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
+                                Check the <strong>Generate directly on Registry Server</strong> checkbox to run generation commands directly on this server!
+                                <br><br>
+                                This uses the registry's server-hosted Llamafile LLM and serves your web apps live on the web instantly, bypasses local CPU loads and daemon startup steps.
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    `
+	return getHeader("Browser Extension Setup", user) + body + getFooter()
 }

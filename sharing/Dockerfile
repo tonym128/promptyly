@@ -30,6 +30,9 @@ RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /app/binaries/promptyly-d
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /app/binaries/promptyly-darwin-amd64 main.go sharingclient.go
 RUN CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o /app/binaries/promptyly-android-arm64 main.go sharingclient.go
 
+# Install zip and package the browser extension
+RUN apk add --no-cache zip && zip -r /app/binaries/promptyly-extension.zip browser-extension
+
 # Install curl and conditionally download llamafile
 RUN apk add --no-cache curl
 ARG INCLUDE_LLAMAFILE=false
