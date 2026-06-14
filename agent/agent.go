@@ -26,10 +26,56 @@ type Agent interface {
 }
 
 var (
-	fileRegex    = regexp.MustCompile(`(?si)<file\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/file>`)
-	summaryRegex = regexp.MustCompile(`(?si)<summary>([\s\S]*?)<\/summary>`)
+	fileRegex      = regexp.MustCompile(`(?si)<file\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/file>`)
+	summaryRegex   = regexp.MustCompile(`(?si)<summary>([\s\S]*?)<\/summary>`)
 	codeBlockRegex = regexp.MustCompile(`(?s)^[\s]*` + "```" + `[a-zA-Z]*\n([\s\S]*?)\n` + "```" + `[\s]*$`)
+
+	// Regexes to strip script tags from JS/TS files
+	jsLeadScriptRegex  = regexp.MustCompile(`(?i)^\s*<script[^>]*>(\r?\n)?`)
+	jsTrailScriptRegex = regexp.MustCompile(`(?i)(\r?\n)?\s*</script>\s*$`)
+
+	// Regexes to strip style tags from CSS files
+	cssLeadStyleRegex  = regexp.MustCompile(`(?i)^\s*<style[^>]*>(\r?\n)?`)
+	cssTrailStyleRegex = regexp.MustCompile(`(?i)(\r?\n)?\s*</style>\s*$`)
 )
+
+// cleanFileContent sanitizes and strips code fences/unwanted tags from file contents.
+func cleanFileContent(filename, content string) string {
+	content = strings.TrimSpace(content)
+
+	// If the content is wrapped in markdown code blocks, strip them
+	if subMatch := codeBlockRegex.FindStringSubmatch(content); len(subMatch) >= 2 {
+		content = subMatch[1]
+	} else {
+		// Also check for code blocks that might not have a newline after the opening backticks
+		// or are just simple triple backticks
+		content = strings.TrimPrefix(content, "```"+"javascript")
+		content = strings.TrimPrefix(content, "```"+"js")
+		content = strings.TrimPrefix(content, "```"+"html")
+		content = strings.TrimPrefix(content, "```"+"css")
+		content = strings.TrimPrefix(content, "```")
+		content = strings.TrimSuffix(content, "```")
+		content = strings.TrimSpace(content)
+	}
+
+	// Strip leading/trailing HTML tags for non-HTML files
+	lowerName := strings.ToLower(filename)
+	isJS := strings.HasSuffix(lowerName, ".js") ||
+		strings.HasSuffix(lowerName, ".jsx") ||
+		strings.HasSuffix(lowerName, ".ts") ||
+		strings.HasSuffix(lowerName, ".tsx") ||
+		strings.HasSuffix(lowerName, ".mjs")
+
+	if isJS {
+		content = jsLeadScriptRegex.ReplaceAllString(content, "")
+		content = jsTrailScriptRegex.ReplaceAllString(content, "")
+	} else if strings.HasSuffix(lowerName, ".css") {
+		content = cssLeadStyleRegex.ReplaceAllString(content, "")
+		content = cssTrailStyleRegex.ReplaceAllString(content, "")
+	}
+
+	return strings.TrimSpace(content)
+}
 
 // ParseResponse extracts files and a summary from the LLM output.
 func ParseResponse(text string) *Response {
@@ -53,29 +99,11 @@ func ParseResponse(text string) *Response {
 		if len(m) >= 3 {
 			filename := strings.TrimSpace(m[1])
 			content := m[2]
-			
-			// Strip leading/trailing whitespace
-			content = strings.TrimSpace(content)
-			
 			rawLen := len(content)
 
-			// If the content is wrapped in markdown code blocks, strip them
-			if subMatch := codeBlockRegex.FindStringSubmatch(content); len(subMatch) >= 2 {
-				content = subMatch[1]
-			} else {
-				// Also check for code blocks that might not have a newline after the opening backticks
-				// or are just simple triple backticks
-				content = strings.TrimPrefix(content, "```" + "javascript")
-				content = strings.TrimPrefix(content, "```" + "js")
-				content = strings.TrimPrefix(content, "```" + "html")
-				content = strings.TrimPrefix(content, "```" + "css")
-				content = strings.TrimPrefix(content, "```")
-				content = strings.TrimSuffix(content, "```")
-				content = strings.TrimSpace(content)
-			}
-			
-			res.Files[filename] = content
-			fmt.Printf("[DEBUG] Extracted file: '%s' (%d bytes, raw was %d)\n", filename, len(content), rawLen)
+			cleanedContent := cleanFileContent(filename, content)
+			res.Files[filename] = cleanedContent
+			fmt.Printf("[DEBUG] Extracted file: '%s' (%d bytes, raw was %d)\n", filename, len(cleanedContent), rawLen)
 		}
 	}
 
@@ -86,16 +114,9 @@ func ParseResponse(text string) *Response {
 			filename := strings.TrimSpace(m[1])
 			if _, exists := res.Files[filename]; !exists {
 				content := m[2]
-				content = strings.TrimSpace(content)
-				// Basic code fence stripping for partial content
-				content = strings.TrimPrefix(content, "```" + "javascript")
-				content = strings.TrimPrefix(content, "```" + "js")
-				content = strings.TrimPrefix(content, "```" + "html")
-				content = strings.TrimPrefix(content, "```" + "css")
-				content = strings.TrimPrefix(content, "```")
-				
-				res.Files[filename] = content
-				fmt.Printf("[DEBUG] ⚠️ Extracted PARTIAL/TRUNCATED file: '%s' (%d bytes)\n", filename, len(content))
+				cleanedContent := cleanFileContent(filename, content)
+				res.Files[filename] = cleanedContent
+				fmt.Printf("[DEBUG] ⚠️ Extracted PARTIAL/TRUNCATED file: '%s' (%d bytes)\n", filename, len(cleanedContent))
 			}
 		}
 	}
