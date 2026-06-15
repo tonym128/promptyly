@@ -82,12 +82,9 @@ func main() {
 				}
 				srcPath := filepath.Join(distDir, file.Name())
 				destPath := filepath.Join(destDir, file.Name())
-				// Copy if not exists
-				if _, err := os.Stat(destPath); os.IsNotExist(err) {
-					fmt.Printf("📦 Copying bundled binary %s to registry binaries...\n", file.Name())
-					if err := copyFile(srcPath, destPath); err != nil {
-						fmt.Printf("⚠️ Warning: failed to copy default binary %s: %v\n", file.Name(), err)
-					}
+				fmt.Printf("📦 Restoring/updating bundled binary %s to registry...\n", file.Name())
+				if err := copyFile(srcPath, destPath); err != nil {
+					fmt.Printf("⚠️ Warning: failed to copy default binary %s: %v\n", file.Name(), err)
 				}
 			}
 		}

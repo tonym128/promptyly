@@ -92,6 +92,7 @@ func (s *Store) load() error {
 		s.Config.RequireAdminApproval = os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
 		s.Config.RequireLoginToView = os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
 		s.Config.AllowSelfRegistration = os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+		s.Config.EnableLlamafile = os.Getenv("ENABLE_LLAMAFILE") == "true"
 		return s.saveLocked()
 	}
 
@@ -127,6 +128,7 @@ func (s *Store) load() error {
 		s.Config.RequireAdminApproval = os.Getenv("REQUIRE_ADMIN_APPROVAL") == "true"
 		s.Config.RequireLoginToView = os.Getenv("REQUIRE_LOGIN_TO_VIEW") == "true"
 		s.Config.AllowSelfRegistration = os.Getenv("ALLOW_SELF_REGISTRATION") != "false"
+		s.Config.EnableLlamafile = os.Getenv("ENABLE_LLAMAFILE") == "true"
 	}
 
 	return nil

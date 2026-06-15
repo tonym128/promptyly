@@ -3,6 +3,7 @@ version: '3.8'
 services:
   # 1. Sharing registry server running on port 6072
   promptyly-registry:
+    image: ghcr.io/tonym128/promptyly-registry:latest
     build:
       context: .
       dockerfile: sharing/Dockerfile
@@ -16,6 +17,7 @@ services:
     environment:
       - PORT=6072
       - DATA_DIR=/app/data
+      - ENABLE_LLAMAFILE=${ENABLE_LLAMAFILE:-false}
     env_file:
       - ./sharing/.env
     restart: unless-stopped

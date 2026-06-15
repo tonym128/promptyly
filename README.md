@@ -234,8 +234,37 @@ To make Promptyly easy to launch and run, the following utilities and environmen
 1. **One-Command Startup Scripts**:
    - Run **[`./start.sh`](file:///home/tonym/Projects/promptyly/start.sh)** (Mac/Linux) or **[`./start.ps1`](file:///home/tonym/Projects/promptyly/start.ps1)** (Windows) to automatically compile the Go daemon, start the background server locally, and open the Hub dashboard Web UI in your default browser.
 2. **Docker Compose Stacks (Sharing Registry & Services)**:
-   - **Default Stack** (runs the Sharing Registry server): Run `docker compose up -d` using **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)**.
-   - **Full Stack** (includes registry + containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**.
+    - **Default Stack** (runs the Sharing Registry server): Run `docker compose up -d` using **[`docker-compose.yml`](file:///home/tonym/Projects/promptyly/docker-compose.yml)**. This serves the precompiled CLI installer packages and browser extension, and persists registry settings, logins, and uploaded apps in the `./sharing/data` volume.
+      * *To also host the local Qwen LLM (llamafile) inside the registry container, run:*
+        ```bash
+        INCLUDE_LLAMAFILE=true ENABLE_LLAMAFILE=true docker compose up -d --build
+        ```
+    
+    #### Deploying the Registry without the Repository (Prebuilt Images)
+    If you want to host your own registry server without cloning the repository or compiling any code locally, you can pull and run the official pre-built image directly from GitHub Container Registry (GHCR):
+
+    * **Standard Registry (No local LLM pre-bundled - ~50MB)**:
+      ```bash
+      docker run -d -p 6072:6072 -v promptyly-registry-data:/app/data --name promptyly-share ghcr.io/tonym128/promptyly-registry:latest
+      ```
+    * **Self-Contained LLM Registry (Qwen LLM pre-bundled & hosted - ~1.3GB)**:
+      ```bash
+      docker run -d -p 6072:6072 -v promptyly-registry-data:/app/data -e ENABLE_LLAMAFILE=true --name promptyly-share ghcr.io/tonym128/promptyly-registry:latest-llm
+      ```
+
+    Once the container is running on port `6072`, client machines can install the CLI locally by pointing to it:
+    ```bash
+    curl -fsSL http://localhost:6072/install.sh | sh
+    ```
+
+    #### Prerequisite: Directory Permissions
+    Before starting Docker with local mount volumes, ensure the sharing data folder is writable by the container:
+    ```bash
+    sudo chown -R $USER:$USER ./sharing/data
+    ```
+   - **Full Stack** (includes registry + containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**. 
+
+
    
    #### Prerequisite: Directory Permissions
    Before starting Docker, ensure the sharing data folder is writable by the container:

@@ -58,3 +58,49 @@ jobs:
           name: promptyly-browser-extension
           path: dist/promptyly-extension.zip
           if-no-files-found: error
+
+  publish-docker:
+    name: Build & Publish Registry Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-registry
+
+      - name: Build and push Docker image (standard)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: sharing/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            INCLUDE_LLAMAFILE=false
+
+      - name: Build and push Docker image (with LLM pre-bundled)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: sharing/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-registry:latest-llm
+          build-args: |
+            INCLUDE_LLAMAFILE=true
+
