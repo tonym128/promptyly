@@ -43,7 +43,7 @@ RUN apk add --no-cache curl
 ARG INCLUDE_LLAMAFILE=false
 RUN if [ "$INCLUDE_LLAMAFILE" = "true" ] ; then \
       echo "📥 Downloading Qwen2.5-Coder-1.5B llamafile..." && \
-      curl -L -f "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
+      curl -L -f "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
       chmod +x /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile ; \
     fi
 

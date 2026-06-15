@@ -1058,7 +1058,7 @@ func (s *Server) handleInstallSh(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 
 	// Check if local llamafile is hosted on this registry server
-	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
 	binariesDir := filepath.Join(s.dataDir, "binaries")
 	localPath := filepath.Join(binariesDir, "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
 	isLocal := false
@@ -1379,7 +1379,7 @@ func (s *Server) handleInstallPs1(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 
 	// Check if local llamafile is hosted on this registry server
-	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+	localLlamafileUrl := "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
 	binariesDir := filepath.Join(s.dataDir, "binaries")
 	localPath := filepath.Join(binariesDir, "qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile")
 	isLocal := false

@@ -54,7 +54,7 @@ if ($env:INCLUDE_LLAMAFILE -eq "true") {
     $llamafileDest = "sharing\data\binaries\qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
     if (-not (Test-Path $llamafileDest)) {
         Write-Host "🔗 Downloading Qwen2.5-Coder-1.5B llamafile from Hugging Face..." -ForegroundColor Yellow
-        $url = "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+        $url = "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
         Invoke-WebRequest -Uri $url -OutFile $llamafileDest -UserAgent "Mozilla/5.0"
         Write-Host "   ✓ Model downloaded successfully!" -ForegroundColor Green
     } else {
