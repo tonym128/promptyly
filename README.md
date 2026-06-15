@@ -257,25 +257,70 @@ To make Promptyly easy to launch and run, the following utilities and environmen
     curl -fsSL http://localhost:6072/install.sh | sh
     ```
 
-    #### Prerequisite: Directory Permissions
-    Before starting Docker with local mount volumes, ensure the sharing data folder is writable by the container:
-    ```bash
-    sudo chown -R $USER:$USER ./sharing/data
-    ```
-   - **Full Stack** (includes registry + containerized Ollama + DeepSeek Coder 1.3B): Run `docker compose -f docker-compose-full.yml up -d` using **[`docker-compose-full.yml`](file:///home/tonym/Projects/promptyly/docker-compose-full.yml)**. 
+### Docker Files & Image Profiles
 
+The repository provides three distinct Docker configurations under the `/sharing` folder to accommodate different hosting architectures:
 
-   
-   #### Prerequisite: Directory Permissions
-   Before starting Docker, ensure the sharing data folder is writable by the container:
-   ```bash
-   sudo chown -R $USER:$USER ./sharing/data
-   ```
+1. **Standard Registry Image ([`sharing/Dockerfile`](file:///home/tonym/Projects/promptyly/sharing/Dockerfile))**:
+   * **Purpose**: Compiles the Promptyly Sharing Registry server and pre-builds all client distribution assets (cross-compiled CLIs for Linux/macOS/Windows/Android and the browser extension zip).
+   * **LLM Cache Option**: Accepts `--build-arg INCLUDE_LLAMAFILE=true` to pre-download the 1.2GB CPU-optimized Qwen model directly into the image.
+   * **Deployment**: Ideal for standard local deployments or multi-container stacks.
+2. **Tunnel Helper Image ([`sharing/Dockerfile.tunnel`](file:///home/tonym/Projects/promptyly/sharing/Dockerfile.tunnel))**:
+   * **Purpose**: A lightweight Alpine wrapper around the Cloudflare Tunnel client (`cloudflared`).
+   * **Deployment**: Runs alongside the standard registry in `docker-compose.yml` to safely expose your registry to a public URL without opening router ports.
+3. **Unified Cloudflare Image ([`sharing/Dockerfile.cloudflare`](file:///home/tonym/Projects/promptyly/sharing/Dockerfile.cloudflare))**:
+   * **Purpose**: Combines both the registry server and the Cloudflare Tunnel client (`cloudflared`) into a **single, unified container image** launched via `entrypoint-cloudflare.sh`.
+   * **Deployment**: Ideal for cloud application platforms (e.g., Fly.io, Render, AWS ECS) that only support single-container tasks and do not support Docker Compose.
 
-   #### Local LLM Loopback Access (LM Studio & Ollama)
-   Since the `promptyly` daemon runs locally as a native host binary, it can connect directly to local LLM engines running on the host (like LM Studio) or the containerized Ollama service:
-   - **OpenAI-compatible / LM Studio Endpoint**: `http://127.0.0.1:1234/v1`
-   - **Ollama Endpoint (DeepSeek Coder 1.3B)**: `http://127.0.0.1:11434`
+---
+
+### 🌐 Setting Up a Self-Hosted Registry Server
+
+You can set up a self-hosted sharing registry server in one of three ways:
+
+#### Method A: Lightweight Docker compose (Recommended for Local/Server networks)
+This spins up the registry and tunnel in a multi-container stack:
+```bash
+# 1. Ensure directory permissions are correct
+sudo chown -R $USER:$USER ./sharing/data
+
+# 2. Start the default stack
+docker compose up -d
+```
+
+#### Method B: Self-Contained LLM host (Offline-ready)
+To host the registry and bundle the local CPU LLM so clients can download it directly from your server without internet:
+```bash
+# Build the container, downloading the 1.2GB Qwen LLM
+INCLUDE_LLAMAFILE=true docker compose build
+
+# Start the stack and enable the LLM server
+ENABLE_LLAMAFILE=true docker compose up -d
+```
+
+#### Method C: Prebuilt GHCR Deployment (No local build needed)
+For a clean deployment on any server without cloning the repository or compile dependencies:
+* **Standard registry**:
+  ```bash
+  docker run -d -p 6072:6072 -v promptyly-registry-data:/app/data --name promptyly-share ghcr.io/tonym128/promptyly-registry:latest
+  ```
+* **Registry with LLM hosting**:
+  ```bash
+  docker run -d -p 6072:6072 -v promptyly-registry-data:/app/data -e ENABLE_LLAMAFILE=true --name promptyly-share ghcr.io/tonym128/promptyly-registry:latest-llm
+  ```
+
+#### Method D: Registry with containerized Ollama (Full Stack)
+To run the registry alongside a separate, GPU-accelerated Ollama container preloaded with the DeepSeek Coder 1.3B model, run:
+```bash
+docker compose -f docker-compose-full.yml up -d
+```
+
+---
+
+#### Local LLM Loopback Access (LM Studio & Ollama)
+Since the `promptyly` daemon runs locally as a native host binary, it can connect directly to local LLM engines running on the host (like LM Studio) or the containerized Ollama service:
+- **OpenAI-compatible / LM Studio Endpoint**: `http://127.0.0.1:1234/v1`
+- **Ollama Endpoint (DeepSeek Coder 1.3B)**: `http://127.0.0.1:11434`
 
 3. **Packaging Utility**:
    - Run **[`./package.sh`](file:///home/tonym/Projects/promptyly/package.sh)** to cross-compile Go daemon binaries for Windows, macOS, and Linux, while bundling the browser extension as a ready-to-release ZIP archive in `dist/`.
