@@ -1867,7 +1867,7 @@ func RenderStaticGallery(apps []*App) string {
                         <span>%s</span>
                     </div>
                     <div style="display: flex; gap: 12px;">
-                        <a href="apps/%s/" class="nav-btn" style="flex-grow: 1; text-align: center; font-size: 0.85rem; padding: 10px 14px; text-decoration: none;">Launch App</a>
+                        <a href="apps/%s/index.html" class="nav-btn" style="flex-grow: 1; text-align: center; font-size: 0.85rem; padding: 10px 14px; text-decoration: none;">Launch App</a>
                     </div>
                 </div>
             </div>`, 
