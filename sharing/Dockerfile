@@ -38,12 +38,12 @@ RUN CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o /app/binaries/promptyly-
 # Install zip and package the browser extension
 RUN apk add --no-cache zip && zip -r /app/binaries/promptyly-extension.zip browser-extension
 
-# Install curl and conditionally download llamafile
-RUN apk add --no-cache curl
+# Install curl, ca-certificates, and conditionally download llamafile
+RUN apk add --no-cache ca-certificates curl
 ARG INCLUDE_LLAMAFILE=false
 RUN if [ "$INCLUDE_LLAMAFILE" = "true" ] ; then \
       echo "📥 Downloading Qwen2.5-Coder-1.5B llamafile..." && \
-      curl -L -f "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
+      curl -L -f --retry 5 --retry-delay 5 "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
       chmod +x /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile ; \
     fi
 

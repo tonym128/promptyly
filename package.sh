@@ -57,7 +57,7 @@ if [ "$INCLUDE_LLAMAFILE" = "true" ]; then
   LLAMAFILE_DEST="sharing/data/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile"
   if [ ! -f "$LLAMAFILE_DEST" ]; then
     echo "🔗 Downloading Qwen2.5-Coder-1.5B llamafile from Hugging Face..."
-    curl -L -f -# "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o "$LLAMAFILE_DEST"
+    curl -L -f --retry 5 --retry-delay 5 -# "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o "$LLAMAFILE_DEST"
     chmod +x "$LLAMAFILE_DEST"
     echo "✓ Model downloaded successfully!"
   else

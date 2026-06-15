@@ -34,12 +34,12 @@ RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /app/binaries/promptyly-d
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /app/binaries/promptyly-darwin-amd64 main.go sharingclient.go
 RUN CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o /app/binaries/promptyly-android-arm64 main.go sharingclient.go
 
-# Install curl and conditionally download llamafile
-RUN apk add --no-cache curl
+# Install curl, ca-certificates, and conditionally download llamafile
+RUN apk add --no-cache ca-certificates curl
 ARG INCLUDE_LLAMAFILE=false
 RUN if [ "$INCLUDE_LLAMAFILE" = "true" ] ; then \
       echo "📥 Downloading Qwen2.5-Coder-1.5B llamafile..." && \
-      curl -L -f "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
+      curl -L -f --retry 5 --retry-delay 5 "https://huggingface.co/Bojun-Feng/Qwen2.5-Coder-1.5B-Instruct-GGUF-llamafile/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile" -o /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile && \
       chmod +x /app/binaries/qwen2.5-coder-1.5b-instruct-q4_k_m.llamafile ; \
     fi
 
