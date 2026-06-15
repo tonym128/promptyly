@@ -242,6 +242,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/approve", wrap(s.apiAdminApproveUser))
 	mux.HandleFunc("/api/admin/reject", wrap(s.apiAdminRejectUser))
 	mux.HandleFunc("/api/admin/config", wrap(s.apiAdminUpdateConfig))
+	mux.HandleFunc("/api/admin/export-static", wrap(s.apiAdminExportStatic))
 
 	// App static website serving
 	mux.HandleFunc("/apps/", wrap(s.handleServeApp))
@@ -1728,6 +1729,77 @@ func (s *Server) apiAdminUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 	})
+}
+
+func (s *Server) apiAdminExportStatic(w http.ResponseWriter, r *http.Request) {
+	currentUser := s.getLoggedInUser(r)
+	if currentUser == nil || !currentUser.IsAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename=promptyly-static-export.zip")
+	w.Header().Set("Content-Type", "application/zip")
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	apps := s.store.ListApps()
+
+	// 1. Generate static gallery index.html
+	galleryHtml := RenderStaticGallery(apps)
+	f, err := zipWriter.Create("index.html")
+	if err != nil {
+		return
+	}
+	if _, err := f.Write([]byte(galleryHtml)); err != nil {
+		return
+	}
+
+	// 2. Add all files for each app to ZIP under apps/<app_id>/...
+	for _, app := range apps {
+		appDir := filepath.Join(s.dataDir, "apps", app.ID)
+		
+		// If the app directory doesn't exist, extract it from zip
+		if _, err := os.Stat(appDir); os.IsNotExist(err) && app.ZipName != "" {
+			zipPath := filepath.Join(s.dataDir, "zips", app.ZipName)
+			if _, err := os.Stat(zipPath); err == nil {
+				_ = os.MkdirAll(appDir, 0755)
+				_ = extractZip(zipPath, appDir)
+			}
+		}
+
+		// Traverse all files in appDir
+		_ = filepath.Walk(appDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(appDir, path)
+			if err != nil {
+				return err
+			}
+
+			// Add to ZIP under apps/<app.ID>/<relPath>
+			// zip paths MUST use forward slashes!
+			zipPath := "apps/" + app.ID + "/" + filepath.ToSlash(relPath)
+
+			fileBytes, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			zf, err := zipWriter.Create(zipPath)
+			if err != nil {
+				return err
+			}
+			_, _ = zf.Write(fileBytes)
+			return nil
+		})
+	}
 }
 
 func (s *Server) apiVersionCheck(w http.ResponseWriter, r *http.Request) {

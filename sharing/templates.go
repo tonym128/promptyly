@@ -1380,6 +1380,16 @@ func RenderAdminPanel(users []*User, currentUser *User, config ServerConfig, ana
                 </div>
             </div>
 
+            <!-- Static Exporter -->
+            <div class="card" style="padding: 36px; border-radius: 12px; margin-bottom: 32px;">
+                <h2 style="font-size: 1.8rem; margin-bottom: 8px;">Static Site Exporter</h2>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Export a self-contained ZIP archive containing all published web applications and a search-capable homepage gallery. You can unzip this archive on any static host (like Vercel, Netlify, or GitHub Pages) to host your registry statically.</p>
+                
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <a href="/api/admin/export-static" class="nav-btn" style="padding: 12px 28px; font-size: 0.95rem; text-decoration: none; display: inline-block; text-align: center;">Export Static Showcase (ZIP)</a>
+                </div>
+            </div>
+
             <!-- User Management -->
             <div class="card" style="padding: 36px; border-radius: 12px;">
                 <h2 style="font-size: 1.8rem; margin-bottom: 8px;">User Management</h2>
@@ -1598,4 +1608,330 @@ func RenderExtensionHowTo(user *User) string {
     </div>
     `
 	return getHeader("Browser Extension Setup", user) + body + getFooter()
+}
+
+func getStaticHeader(title string) string {
+	navLinks := `<span style="color: var(--text-muted); font-size: 0.9rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">Static Showcase</span>`
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>%s | Promptyly Static Gallery</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050811;
+            --card-bg: rgba(13, 20, 35, 0.65);
+            --border-color: rgba(255, 255, 255, 0.05);
+            --border-hover: rgba(99, 102, 241, 0.35);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-color: #6366f1;
+            --accent-hover: #4f46e5;
+            --accent-glow: rgba(99, 102, 241, 0.25);
+            --accent-grad: linear-gradient(135deg, #a5b4fc 0%%, #6366f1 100%%);
+            --success-color: #10b981;
+            --error-color: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Ambient glow spots background */
+        body::before {
+            content: '';
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%%, transparent 70%%);
+            top: -200px;
+            left: -200px;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        body::after {
+            content: '';
+            position: absolute;
+            width: 650px;
+            height: 650px;
+            background: radial-gradient(circle, rgba(165, 180, 252, 0.05) 0%%, transparent 75%%);
+            bottom: -200px;
+            right: -200px;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        header {
+            width: 100%%;
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(5, 8, 17, 0.75);
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 18px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand-logo {
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.35rem;
+            color: var(--text-primary);
+        }
+
+        .logo-icon {
+            width: 34px;
+            height: 34px;
+            background: var(--accent-grad);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.25rem;
+            color: white;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-btn {
+            background: var(--accent-grad);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            border: none;
+            cursor: pointer;
+        }
+
+        .nav-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+        }
+
+        .main-container {
+            max-width: 1200px;
+            width: 100%%;
+            margin: 0 auto;
+            padding: 50px 24px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        footer {
+            border-top: 1px solid var(--border-color);
+            padding: 30px 24px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            background: rgba(3, 5, 10, 0.5);
+            margin-top: 50px;
+        }
+
+        h1, h2, h3 {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .accent-text {
+            background: var(--accent-grad);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(20px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .app-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-hover);
+            box-shadow: 0 12px 30px rgba(99, 102, 241, 0.08);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="nav-container">
+            <div class="brand-logo">
+                <div class="logo-icon">P</div>
+                <span>Promptyly Static Gallery</span>
+            </div>
+            <div class="nav-links">
+                %s
+            </div>
+        </div>
+    </header>
+    <div class="main-container">
+`, title, navLinks)
+}
+
+func RenderStaticGallery(apps []*App) string {
+	headerHtml := getStaticHeader("Static Application Gallery")
+	appsGrid := ""
+	if len(apps) == 0 {
+		appsGrid = `
+        <div class="empty-state card" style="text-align: center; padding: 60px 40px; margin: 0 auto; max-width: 500px; width: 100%;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); margin-bottom: 16px;"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            <h3 style="margin-bottom: 8px;">No applications found</h3>
+            <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5;">There are no applications published in this registry yet.</p>
+        </div>`
+	} else {
+		appsGrid = `<div class="grid" id="apps-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 28px; width: 100%;">`
+		for _, app := range apps {
+			displayName := html.EscapeString(app.Name)
+			displayPrompt := html.EscapeString(app.Prompt)
+			if len(displayPrompt) > 120 {
+				displayPrompt = displayPrompt[:117] + "..."
+			}
+
+			viewsText := fmt.Sprintf("%d views", app.Views)
+			if app.Views == 1 {
+				viewsText = "1 view"
+			}
+			downloadsText := fmt.Sprintf("%d downloads", app.Downloads)
+			if app.Downloads == 1 {
+				downloadsText = "1 download"
+			}
+
+			appsGrid += fmt.Sprintf(`
+            <div class="card app-card" data-name="%s" data-prompt="%s" style="display: flex; flex-direction: column; justify-content: space-between; min-height: 300px; transition: transform 0.2s, border-color 0.2s; height: 100%%;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 12px;">
+                        <h3 style="font-size: 1.3rem; line-height: 1.3; color: var(--text-primary);">%s</h3>
+                        <span style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px; background: rgba(99, 102, 241, 0.1); color: #a5b4fc; font-weight: 600; white-space: nowrap;">By %s</span>
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; margin-bottom: 16px;">%s</p>
+                </div>
+                <div>
+                    <div style="display: flex; gap: 12px; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 16px; background: rgba(0,0,0,0.15); padding: 6px 12px; border-radius: 6px;">
+                        <span>%s</span>
+                        <span>&bull;</span>
+                        <span>%s</span>
+                        <span>&bull;</span>
+                        <span>%s</span>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <a href="apps/%s/" class="nav-btn" style="flex-grow: 1; text-align: center; font-size: 0.85rem; padding: 10px 14px; text-decoration: none;">Launch App</a>
+                    </div>
+                </div>
+            </div>`, 
+				html.EscapeString(app.Name), // Use actual values for filter comparisons.
+				html.EscapeString(app.Prompt),
+				displayName, 
+				html.EscapeString(app.Username), 
+				displayPrompt, 
+				viewsText, 
+				downloadsText, 
+				app.CreatedAt.Format("Jan 02, 2006"), 
+				app.ID)
+		}
+		appsGrid += `</div>`
+	}
+
+	body := fmt.Sprintf(`
+        <div style="max-width: 1200px; width: 100%%; margin: 40px auto; padding: 0 24px; flex-grow: 1; display: flex; flex-direction: column; gap: 32px;">
+            <!-- Header section -->
+            <div style="text-align: center; max-width: 800px; margin: 0 auto 20px auto;">
+                <h1 style="font-size: 2.8rem; font-weight: 800; margin-bottom: 16px; letter-spacing: -0.03em; line-height: 1.15;">
+                    Static Application <span class="accent-text">Showcase</span>
+                </h1>
+                <p style="color: var(--text-secondary); font-size: 1.15rem; line-height: 1.6;">
+                    Browse and run autonomous single-page applications exported from the Promptyly Registry.
+                </p>
+            </div>
+
+            <!-- Client-side Search and Filter Bar -->
+            <div class="card" style="padding: 20px; display: flex; gap: 16px; align-items: center; border-radius: 12px; background: rgba(13, 20, 35, 0.45);">
+                <div style="flex-grow: 1; position: relative;">
+                    <input type="text" id="static-search" oninput="filterApps()" placeholder="Search apps by name or prompt..." style="width: 100%%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px 12px 40px; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--accent-color)'" onblur="this.style.borderColor='var(--border-color)'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 14px; top: 50%%; transform: translateY(-50%%); color: var(--text-muted); pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.9rem; font-weight: 500;" id="apps-count">
+                    Showing %d apps
+                </div>
+            </div>
+
+            <!-- Apps Grid -->
+            %s
+        </div>
+
+        <script>
+            function filterApps() {
+                const query = document.getElementById('static-search').value.toLowerCase().trim();
+                const cards = document.querySelectorAll('.app-card');
+                let visibleCount = 0;
+                
+                cards.forEach(card => {
+                    const name = card.getAttribute('data-name').toLowerCase();
+                    const prompt = card.getAttribute('data-prompt').toLowerCase();
+                    if (name.includes(query) || prompt.includes(query)) {
+                        card.style.display = 'flex';
+                        visibleCount++;
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+                
+                document.getElementById('apps-count').textContent = 'Showing ' + visibleCount + ' of ' + cards.length + ' apps';
+            }
+        </script>
+	`, len(apps), appsGrid)
+
+	return headerHtml + body + getFooter()
 }
