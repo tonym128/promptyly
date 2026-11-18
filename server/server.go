@@ -533,6 +533,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                     <button class="tool-btn" onclick="triggerInlineRename('%s')" title="Rename App">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"></path></svg>
                     </button>
+                    <button class="tool-btn" onclick="exportAppZip('%s')" title="Export Offline Zip">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    </button>
                     %s
                     <button class="tool-btn delete" onclick="triggerInlineDelete('%s')" title="Delete App">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
@@ -563,7 +566,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                 <div class="card-actions">
                     <a href="/apps/%s/" target="_blank" class="card-btn">Open Application</a>
                 </div>
-            </div>`, name, html.EscapeString(displayName), created, name, displayName, name, displayPrompt, name, name, publishBtnPart, name, name, name, publishCheckboxPart, name, name, name, runLink, runLink, createLinkPart, name)
+            </div>`, name, html.EscapeString(displayName), created, name, displayName, name, displayPrompt, name, name, name, publishBtnPart, name, name, name, publishCheckboxPart, name, name, name, runLink, runLink, createLinkPart, name)
 		}
 		gridHTML += `</div>`
 	}
@@ -1099,15 +1102,24 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         Generate App
                     </button>
                 </div>
-                <div style="margin-top: 10px; display: flex; gap: 20px; align-items: center; font-size: 0.85rem; color: var(--text-secondary);">
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" id="gen-streaming" checked style="margin-right: 6px;">
-                        Enable Streaming
-                    </label>
-                    <label style="display: flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" id="gen-caveman" style="margin-right: 6px;">
-                        Caveman Mode (Terse)
-                    </label>
+                <div style="margin-top: 10px; display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; font-size: 0.85rem; color: var(--text-secondary);">
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="gen-streaming" checked style="margin-right: 6px;">
+                            Enable Streaming
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="gen-caveman" style="margin-right: 6px;">
+                            Caveman Mode (Terse)
+                        </label>
+                    </div>
+                    <div>
+                        <input type="file" id="import-zip-input" accept=".zip" style="display: none;" onchange="handleImportZip(this)">
+                        <button type="button" id="btn-import-zip" onclick="document.getElementById('import-zip-input').click()" style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); color: #a5b4fc; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            Import App (.zip)
+                        </button>
+                    </div>
                 </div>
                 <div class="gen-loading" id="gen-loading" style="display: none;">
                     <div class="gen-loading-spinner"></div>
@@ -2107,6 +2119,77 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    async function exportAppZip(name) {
+        const card = document.getElementById('card-' + name);
+        const btn = card ? card.querySelector('button[title="Export Offline Zip"]') : null;
+        const originalHTML = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner" style="width: 14px; height: 14px; margin: 0 auto;"></div>';
+        }
+        try {
+            const res = await fetch('/api/apps/export-zip?name=' + encodeURIComponent(name), {
+                method: 'GET',
+                headers: { 'X-Promptyly-Token': API_TOKEN }
+            });
+            if (!res.ok) {
+                const txt = await res.text();
+                alert('Export failed: ' + txt);
+                return;
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name + '.zip';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Export error: ' + err.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
+        }
+    }
+
+    async function handleImportZip(input) {
+        const file = input && input.files && input.files[0];
+        if (!file) return;
+        const btn = document.getElementById('btn-import-zip');
+        const originalHTML = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Importing...';
+        }
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch('/api/apps/import-zip', {
+                method: 'POST',
+                headers: { 'X-Promptyly-Token': API_TOKEN },
+                body: formData
+            });
+            if (!res.ok) {
+                const txt = await res.text();
+                alert('Import failed: ' + txt);
+                return;
+            }
+            window.location.reload();
+        } catch (err) {
+            alert('Import error: ' + err.message);
+        } finally {
+            input.value = '';
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
+        }
+    }
+
     async function publishApp(name) {
         const desc = prompt("Enter an optional description for the sharing registry:", "");
         if (desc === null) return;
@@ -2427,10 +2510,12 @@ func StartDevServer(defaultPort int) (int, error) {
 	mux.HandleFunc("/api/apps/link", withAuth(apiLinkAppHandler))
 	mux.HandleFunc("/api/apps/delete", withAuth(apiDeleteAppHandler))
 	mux.HandleFunc("/api/apps/export", withAuth(apiExportAppHandler))
+	mux.HandleFunc("/api/apps/export-zip", withAuth(apiExportZipHandler))
 	mux.HandleFunc("/api/apps/update-metadata", withAuth(apiUpdateMetadataHandler))
 	mux.HandleFunc("/api/apps/download", withAuth(apiDownloadAppHandler))
 	mux.HandleFunc("/api/apps/publish", withAuth(apiPublishAppHandler))
 	mux.HandleFunc("/api/apps/import", withAuth(apiImportAppHandler))
+	mux.HandleFunc("/api/apps/import-zip", withAuth(apiImportZipHandler))
 	mux.HandleFunc("/api/apps/search", withAuth(apiSearchAppsHandler))
 	mux.HandleFunc("/api/protocol/register", withAuth(apiProtocolRegisterHandler))
 	mux.HandleFunc("/api/protocol/unregister", withAuth(apiProtocolUnregisterHandler))
@@ -2884,6 +2969,39 @@ func apiExportAppHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func apiExportZipHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ExportAppCallback == nil {
+		http.Error(w, "Export app callback not configured", http.StatusInternalServerError)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		http.Error(w, "Missing app name", http.StatusBadRequest)
+		return
+	}
+
+	tmpDir, err := os.MkdirTemp("", "promptyly-export-*")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	zipPath := filepath.Join(tmpDir, filepath.Base(name)+".zip")
+	if err := ExportAppCallback(name, zipPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(name)+".zip"))
+	http.ServeFile(w, r, zipPath)
+}
+
 func apiUpdateMetadataHandler(w http.ResponseWriter, r *http.Request) {
 	setCORSHeaders(w)
 	if r.Method == "OPTIONS" {
@@ -3165,6 +3283,64 @@ func apiImportAppHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"appName": appName,
+	})
+}
+
+func apiImportZipHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ImportAppCallback == nil {
+		http.Error(w, "Import app callback not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		http.Error(w, "Failed to parse upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing zip file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	tmpDir, err := os.MkdirTemp("", "promptyly-import-*")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	baseName := filepath.Base(header.Filename)
+	if !strings.HasSuffix(strings.ToLower(baseName), ".zip") {
+		baseName += ".zip"
+	}
+	tmpZipPath := filepath.Join(tmpDir, baseName)
+	out, err := os.Create(tmpZipPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out.Close()
+
+	appName, err := ImportAppCallback(tmpZipPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = reloadCachedConfig()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,

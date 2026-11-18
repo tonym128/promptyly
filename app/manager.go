@@ -645,6 +645,80 @@ func sendServerPublishRequest(port int, appName, description string) error {
 }
 
 // ExportApp creates a zip file of the application.
+const (
+	offlineShimStart = "<!-- promptyly-offline-shim -->"
+	offlineShimEnd   = "<!-- /promptyly-offline-shim -->"
+)
+
+func injectOfflineShim(htmlContent, appName string) string {
+	if strings.Contains(htmlContent, offlineShimStart) {
+		return htmlContent
+	}
+	shim := fmt.Sprintf(`%s
+<script>
+(function() {
+  const storageKey = 'promptyly_db_' + %q;
+  const origFetch = window.fetch ? window.fetch.bind(window) : null;
+  window.fetch = async function(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (url.includes('_promptyly/api/db')) {
+      if (origFetch && window.location.protocol !== 'file:') {
+        try {
+          const res = await origFetch(input, init);
+          if (res.ok) return res;
+        } catch (_) {}
+      }
+      const method = ((init && init.method) || 'GET').toUpperCase();
+      if (method === 'POST' || method === 'PUT') {
+        const body = (init && init.body) ? String(init.body) : '{}';
+        try { localStorage.setItem(storageKey, body); } catch (_) {}
+        return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      let stored = '{}';
+      try { stored = localStorage.getItem(storageKey) || '{}'; } catch (_) {}
+      return new Response(stored, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return origFetch ? origFetch(input, init) : Promise.reject(new Error('fetch unavailable'));
+  };
+})();
+</script>
+%s`, offlineShimStart, appName, offlineShimEnd)
+
+	lower := strings.ToLower(htmlContent)
+	if idx := strings.LastIndex(lower, "</body>"); idx != -1 {
+		return htmlContent[:idx] + "\n" + shim + "\n" + htmlContent[idx:]
+	}
+	return htmlContent + "\n" + shim + "\n"
+}
+
+func stripOfflineShim(htmlContent string) string {
+	start := strings.Index(htmlContent, offlineShimStart)
+	if start == -1 {
+		return htmlContent
+	}
+	end := strings.Index(htmlContent[start:], offlineShimEnd)
+	if end == -1 {
+		return htmlContent
+	}
+	endIdx := start + end + len(offlineShimEnd)
+	cleaned := strings.TrimRight(htmlContent[:start], "\r\n") + "\n" + strings.TrimLeft(htmlContent[endIdx:], "\r\n")
+	return cleaned
+}
+
+func addZipTextFile(archive *zip.Writer, name, content string, mode os.FileMode) error {
+	hdr := &zip.FileHeader{
+		Name:   name,
+		Method: zip.Deflate,
+	}
+	hdr.SetMode(mode)
+	w, err := archive.CreateHeader(hdr)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, content)
+	return err
+}
+
 func ExportApp(cfg *config.Config, appName, outputPath string) error {
 	appDir := cfg.ResolveAppPath(appName)
 	if appDir == "" {
@@ -708,6 +782,16 @@ func ExportApp(cfg *config.Config, appName, outputPath string) error {
 		}
 		defer file.Close()
 
+		if filepath.ToSlash(relPath) == "index.html" {
+			raw, readErr := io.ReadAll(file)
+			if readErr != nil {
+				return readErr
+			}
+			shimmed := injectOfflineShim(string(raw), appName)
+			_, err = io.WriteString(writer, shimmed)
+			return err
+		}
+
 		_, err = io.Copy(writer, file)
 		return err
 	})
@@ -715,6 +799,13 @@ func ExportApp(cfg *config.Config, appName, outputPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to zip directory: %v", err)
 	}
+
+	// Add convenient offline launchers
+	playSh := "#!/usr/bin/env sh\nset -e\nPORT=${PORT:-8765}\necho \"Serving offline app at http://127.0.0.1:$PORT\"\nif command -v xdg-open >/dev/null 2>&1; then (sleep 1 && xdg-open \"http://127.0.0.1:$PORT\") & elif command -v open >/dev/null 2>&1; then (sleep 1 && open \"http://127.0.0.1:$PORT\") & fi\nexec python3 -m http.server \"$PORT\" --bind 127.0.0.1\n"
+	_ = addZipTextFile(archive, "play.sh", playSh, 0755)
+
+	playBat := "@echo off\nset PORT=8765\necho Serving offline app at http://127.0.0.1:%PORT%\nstart \"\" http://127.0.0.1:%PORT%\npython -m http.server %PORT% --bind 127.0.0.1\n"
+	_ = addZipTextFile(archive, "play.bat", playBat, 0644)
 
 	fmt.Printf("Successfully exported '%s' to %s\n", appName, outputPath)
 	return nil
@@ -741,8 +832,16 @@ func ImportApp(cfg *config.Config, zipPath string) (string, error) {
 		return "", err
 	}
 
+	cleanAppDir := filepath.Clean(appDir) + string(os.PathSeparator)
 	for _, file := range reader.File {
-		path := filepath.Join(appDir, file.Name)
+		relName := filepath.ToSlash(filepath.Clean(file.Name))
+		if relName == "." || relName == "play.sh" || relName == "play.bat" || strings.HasPrefix(relName, ".git/") || relName == ".git" {
+			continue
+		}
+		path := filepath.Join(appDir, filepath.FromSlash(relName))
+		if !strings.HasPrefix(filepath.Clean(path), cleanAppDir) {
+			return "", fmt.Errorf("invalid zip entry path: %s", file.Name)
+		}
 		if file.FileInfo().IsDir() {
 			_ = os.MkdirAll(path, file.Mode())
 			continue
@@ -752,14 +851,27 @@ func ImportApp(cfg *config.Config, zipPath string) (string, error) {
 			return "", err
 		}
 
-		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		rc, err := file.Open()
 		if err != nil {
 			return "", err
 		}
 
-		rc, err := file.Open()
+		if relName == "index.html" {
+			raw, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				return "", readErr
+			}
+			cleaned := stripOfflineShim(string(raw))
+			if err := os.WriteFile(path, []byte(cleaned), 0644); err != nil {
+				return "", err
+			}
+			continue
+		}
+
+		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
 		if err != nil {
-			outFile.Close()
+			rc.Close()
 			return "", err
 		}
 
@@ -768,6 +880,16 @@ func ImportApp(cfg *config.Config, zipPath string) (string, error) {
 		outFile.Close()
 		if err != nil {
 			return "", err
+		}
+	}
+
+	// Restore prompt mapping from history if available
+	if entries, err := history.LoadHistory(appDir); err == nil {
+		for _, entry := range entries {
+			if entry.Action == "create" && strings.TrimSpace(entry.Prompt) != "" {
+				cfg.Prompts[strings.TrimSpace(entry.Prompt)] = appName
+				break
+			}
 		}
 	}
 
