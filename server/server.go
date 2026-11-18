@@ -1191,6 +1191,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
                         <div class="form-group">
                             <label class="form-label">Provider Engine Type</label>
                             <select class="form-control" id="editor-type" onchange="onEditorTypeChange()">
+                                <option value="agy">Antigravity CLI (agy)</option>
                                 <option value="gemini">Gemini (Google)</option>
                                 <option value="claude">Claude (Anthropic)</option>
                                 <option value="ollama">Ollama</option>

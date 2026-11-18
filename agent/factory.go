@@ -11,6 +11,8 @@ func NewClient(provider string, cfg config.ProviderConfig) (Agent, error) {
 		engineType = provider
 	}
 	switch engineType {
+	case "agy":
+		return NewAgyClient(cfg), nil
 	case "gemini":
 		return NewGeminiClient(cfg), nil
 	case "claude":

@@ -423,7 +423,11 @@ func main() {
 			fmt.Printf("❌ Failed to start server: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("🚀 Promptyly background server/API running on http://127.0.0.1:%d\n", port)
+		host := os.Getenv("HOST")
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		fmt.Printf("🚀 Promptyly background server/API running on http://%s:%d\n", host, port)
 		fmt.Println("Press Ctrl+C to exit.")
 		select {}
 

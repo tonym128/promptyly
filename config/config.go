@@ -20,6 +20,7 @@ type ProviderConfig struct {
 	URL    string   `json:"url,omitempty"`
 	Model  string   `json:"model,omitempty"`
 	Models []string `json:"models,omitempty"`
+	Effort string   `json:"effort,omitempty"`
 }
 
 type Config struct {
@@ -96,6 +97,21 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		DefaultProvider: "gemini",
 		Providers: map[string]ProviderConfig{
+			"agy": {
+				Type:   "agy",
+				Model:  "gemini-4-hydrogen-medium",
+				Effort: "medium",
+				Models: []string{
+					"gemini-4-hydrogen-medium",
+					"gemini-4-hydrogen-high",
+					"gemini-4-hydrogen-low",
+					"gemini-4-argon-medium",
+					"gemini-4-argon-high",
+					"gemini-3.8-flash-medium",
+					"claude-sonnet-5-5-medium",
+					"claude-opus-5-5-medium",
+				},
+			},
 			"gemini": {
 				Model:  "gemini-1.5-flash",
 				Models: []string{"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"},
@@ -145,6 +161,25 @@ func LoadConfig() (*Config, error) {
 		cfg.AppsDir = filepath.Join(home, "promptyly-apps")
 	}
 
+	// Apply environment defaults before loading or creating config.json
+	if envProv := os.Getenv("PROMPTYLY_DEFAULT_PROVIDER"); envProv != "" {
+		cfg.DefaultProvider = envProv
+		cfg.ActiveProvider = envProv
+	}
+	if envModel := os.Getenv("PROMPTYLY_AGY_MODEL"); envModel != "" {
+		agyCfg := cfg.Providers["agy"]
+		agyCfg.Model = envModel
+		cfg.Providers["agy"] = agyCfg
+	}
+	if envEffort := os.Getenv("PROMPTYLY_AGY_EFFORT"); envEffort != "" {
+		agyCfg := cfg.Providers["agy"]
+		agyCfg.Effort = envEffort
+		cfg.Providers["agy"] = agyCfg
+	}
+	if envRemote := os.Getenv("PROMPTYLY_CHECK_REMOTE_FIRST"); envRemote == "false" || envRemote == "0" {
+		cfg.CheckRemoteFirst = false
+	}
+
 	// Detect local llamafiles and add to llamafile models list
 	localLlamafiles := DetectLocalLlamafiles()
 	if len(localLlamafiles) > 0 {
@@ -185,6 +220,9 @@ func LoadConfig() (*Config, error) {
 	// Merge with defaults to ensure all providers and keys are present
 	if loadedConfig.DefaultProvider != "" {
 		cfg.DefaultProvider = loadedConfig.DefaultProvider
+	}
+	if loadedConfig.ActiveProvider != "" {
+		cfg.ActiveProvider = loadedConfig.ActiveProvider
 	}
 	if loadedConfig.AppsDir != "" {
 		cfg.AppsDir = loadedConfig.AppsDir
@@ -235,6 +273,9 @@ func LoadConfig() (*Config, error) {
 		}
 		if len(v.Models) > 0 {
 			cfgV.Models = v.Models
+		}
+		if v.Effort != "" {
+			cfgV.Effort = v.Effort
 		}
 		cfg.Providers[k] = cfgV
 	}

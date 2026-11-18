@@ -25,6 +25,25 @@ type Agent interface {
 	Generate(ctx context.Context, systemPrompt, userPrompt string, onToken func(token string)) (*Response, error)
 }
 
+type seedDirKey struct{}
+
+// WithSeedDir attaches an existing application directory to the context so
+// workspace-capable agents (like agy) can inspect and edit existing files.
+func WithSeedDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, seedDirKey{}, dir)
+}
+
+// SeedDirFromContext retrieves the seed directory from the context, if any.
+func SeedDirFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(seedDirKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 var (
 	fileRegex      = regexp.MustCompile(`(?si)<file\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/file>`)
 	summaryRegex   = regexp.MustCompile(`(?si)<summary>([\s\S]*?)<\/summary>`)
